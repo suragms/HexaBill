@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
-import { ArrowLeft, DollarSign, FileText, CreditCard, Calendar, Download } from 'lucide-react'
+import { ArrowLeft, DollarSign, FileText, CreditCard, Calendar, Download, Banknote } from 'lucide-react'
 import { suppliersAPI, purchasesAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
 import toast from 'react-hot-toast'
@@ -32,29 +32,32 @@ const SupplierDetailPage = () => {
   })
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [preFillPayment, setPreFillPayment] = useState({ amount: '', reference: '' })
 
   useEffect(() => {
     if (supplierName) {
       loadData()
     }
-  }, [supplierName, activeTab, fromDate, toDate])
+  }, [supplierName, activeTab, fromDate, toDate, showRecordPayment])
 
   const loadData = async () => {
     if (!supplierName) return
     try {
       setLoading(true)
-      if (activeTab === 'summary' || activeTab === 'ledger') {
-        const [balanceRes, transactionsRes] = await Promise.all([
-          suppliersAPI.getSupplierBalance(supplierName),
-          suppliersAPI.getSupplierTransactions(supplierName, fromDate || undefined, toDate || undefined)
-        ])
+      if (activeTab === 'summary' || activeTab === 'ledger' || activeTab === 'purchases') {
+        const balanceRes = await suppliersAPI.getSupplierBalance(supplierName)
         if (balanceRes?.success && balanceRes?.data) setBalance(balanceRes.data)
+      }
+      if (activeTab === 'summary' || activeTab === 'ledger') {
+        const transactionsRes = await suppliersAPI.getSupplierTransactions(supplierName, fromDate || undefined, toDate || undefined)
         if (transactionsRes?.success && transactionsRes?.data) setTransactions(transactionsRes.data)
-      } else if (activeTab === 'purchases') {
+      }
+      if (activeTab === 'purchases' || activeTab === 'ledger' || showRecordPayment) {
         const res = await purchasesAPI.getPurchases({ supplierName, pageSize: 100 })
         if (res?.success && res?.data?.items) setPurchases(res.data.items)
         else setPurchases([])
-      } else if (activeTab === 'payments') {
+      }
+      if (activeTab === 'payments') {
         const res = await suppliersAPI.getSupplierTransactions(supplierName, fromDate || undefined, toDate || undefined)
         if (res?.success && res?.data) {
           const payments = (res.data || []).filter(t => (t.type || '').toLowerCase() === 'payment')
@@ -93,10 +96,13 @@ const SupplierDetailPage = () => {
         notes: paymentForm.notes?.trim() || undefined
       })
       if (res?.success) {
-        toast.success('Payment recorded')
+        toast.success('Payment recorded. Bills and reports updated (FIFO).')
         setShowRecordPayment(false)
+        setPreFillPayment({ amount: '', reference: '' })
         setPaymentForm({ amount: '', paymentDate: new Date().toISOString().split('T')[0], mode: 'Cash', reference: '', notes: '' })
-        loadData()
+        await loadData()
+        const resPurchases = await purchasesAPI.getPurchases({ supplierName, pageSize: 100 })
+        if (resPurchases?.success && resPurchases?.data?.items) setPurchases(resPurchases.data.items)
       } else toast.error(res?.message || 'Failed to record payment')
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to record payment')
@@ -173,7 +179,10 @@ const SupplierDetailPage = () => {
           )}
           <button
             type="button"
-            onClick={() => setShowRecordPayment(!showRecordPayment)}
+            onClick={() => {
+              setPreFillPayment({ amount: '', reference: '' })
+              setShowRecordPayment(!showRecordPayment)
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm"
           >
             <DollarSign className="h-4 w-4" /> Record Payment
@@ -183,7 +192,52 @@ const SupplierDetailPage = () => {
 
       {showRecordPayment && (
         <div className="mb-6 bg-lime-50 border-2 border-lime-300 rounded-lg p-4 w-full">
-          <h3 className="font-semibold text-primary-800 mb-3">Record Payment</h3>
+          <h3 className="font-semibold text-primary-800 mb-2">Record Payment</h3>
+          <p className="text-xs text-primary-600 mb-3">Payment is applied to <strong>oldest unpaid/partial bills first (FIFO)</strong>. Summary, Ledger and Reports use this same logic.</p>
+          {preFillPayment.reference && (
+            <p className="text-xs text-green-700 mb-2 bg-green-100 px-2 py-1 rounded">Amount pre-filled for invoice <strong>{preFillPayment.reference}</strong>. You can change it; FIFO still applies.</p>
+          )}
+
+          {purchases.length > 0 && (
+            <div className="mb-4 rounded-lg border border-lime-400 bg-white overflow-hidden">
+              <h4 className="text-xs font-semibold text-primary-800 px-3 py-2 bg-lime-100 border-b border-lime-300">Bills for this supplier — see which are Paid / Partial / Unpaid</h4>
+              <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-primary-50 sticky top-0">
+                    <tr>
+                      <th className="text-left p-2 font-medium text-primary-800">Invoice No</th>
+                      <th className="text-left p-2 font-medium text-primary-800">Date</th>
+                      <th className="text-right p-2 font-medium text-primary-800">Total</th>
+                      <th className="text-right p-2 font-medium text-primary-800">Paid</th>
+                      <th className="text-right p-2 font-medium text-primary-800">Balance</th>
+                      <th className="text-center p-2 font-medium text-primary-800">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchases.map(p => (
+                      <tr key={p.id} className="border-t border-primary-100 hover:bg-primary-50/50">
+                        <td className="p-2 font-medium">{p.invoiceNo}</td>
+                        <td className="p-2">{formatDate(p.purchaseDate)}</td>
+                        <td className="p-2 text-right">{formatCurrency(p.totalAmount || 0)}</td>
+                        <td className="p-2 text-right text-green-700">{formatCurrency(p.paidAmount || 0)}</td>
+                        <td className="p-2 text-right text-amber-700">{formatCurrency(p.balanceAmount || 0)}</td>
+                        <td className="p-2 text-center">
+                          <span className={`px-1.5 py-0.5 rounded font-medium ${
+                            (p.paymentStatus || '').toLowerCase() === 'paid' ? 'bg-green-100 text-green-800' :
+                            (p.paymentStatus || '').toLowerCase() === 'partial' ? 'bg-amber-100 text-amber-800' :
+                            'bg-neutral-100 text-neutral-700'
+                          }`}>
+                            {p.paymentStatus || 'Unpaid'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleRecordPayment} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label className="block text-xs font-medium text-primary-700 mb-1">Amount (AED) *</label>
@@ -213,7 +267,7 @@ const SupplierDetailPage = () => {
               <button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium">
                 {saving ? 'Saving...' : 'Save Payment'}
               </button>
-              <button type="button" onClick={() => setShowRecordPayment(false)} className="px-4 py-2 border-2 border-primary-300 rounded-lg hover:bg-primary-50 font-medium">Cancel</button>
+              <button type="button" onClick={() => { setShowRecordPayment(false); setPreFillPayment({ amount: '', reference: '' }) }} className="px-4 py-2 border-2 border-primary-300 rounded-lg hover:bg-primary-50 font-medium">Cancel</button>
             </div>
           </form>
           {balance?.netPayable > 0 && parseFloat(paymentForm.amount) > balance.netPayable && (
@@ -252,6 +306,14 @@ const SupplierDetailPage = () => {
 
           {activeTab === 'ledger' && (
             <div className="bg-white rounded-lg border-2 border-lime-300 overflow-hidden w-full">
+              {/* Summary: Total paid, Pending balance */}
+              {balance != null && (
+                <div className="p-4 bg-primary-50 border-b-2 border-lime-300 flex flex-wrap gap-6 items-center">
+                  <span className="text-sm"><span className="font-semibold text-primary-700">Total purchases (Debits):</span> <span className="font-bold text-primary-900">{formatCurrency(balance.totalPurchases || 0)}</span></span>
+                  <span className="text-sm"><span className="font-semibold text-green-700">Total paid (Credits):</span> <span className="font-bold text-green-800">{formatCurrency(balance.totalPayments || 0)}</span></span>
+                  <span className="text-sm"><span className="font-semibold text-amber-700">Pending balance:</span> <span className="font-bold text-amber-800">{formatCurrency(balance.netPayable || 0)}</span></span>
+                </div>
+              )}
               <div className="p-4 border-b border-lime-300 flex flex-wrap gap-2 items-center">
                 <Calendar className="h-4 w-4 text-primary-500" />
                 <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="border-2 border-lime-300 rounded px-2 py-1 text-sm" />
@@ -265,34 +327,69 @@ const SupplierDetailPage = () => {
                       <th className="text-left p-2">Date</th>
                       <th className="text-left p-2">Type</th>
                       <th className="text-left p-2">Reference</th>
-                      <th className="text-right p-2">Debit</th>
-                      <th className="text-right p-2">Credit</th>
-                      <th className="text-right p-2">Balance</th>
+                      <th className="text-right p-2" title="Purchase amount (increases what you owe)">Debit</th>
+                      <th className="text-right p-2" title="Payment (reduces what you owe)">Credit</th>
+                      <th className="text-right p-2">Running balance</th>
+                      <th className="text-center p-2">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {transactions.length === 0 ? (
-                      <tr><td colSpan={6} className="p-4 text-center text-primary-500">No transactions</td></tr>
+                      <tr><td colSpan={7} className="p-4 text-center text-primary-500">No transactions</td></tr>
                     ) : (
-                      transactions.map((t, i) => (
-                        <tr key={i} className="border-t border-primary-100 hover:bg-primary-50">
-                          <td className="p-2">{formatDate(t.date)}</td>
-                          <td className="p-2 font-medium">{t.type}</td>
-                          <td className="p-2">{t.reference || '-'}</td>
-                          <td className="p-2 text-right">{t.debit > 0 ? formatCurrency(t.debit) : '-'}</td>
-                          <td className="p-2 text-right">{t.credit > 0 ? formatCurrency(t.credit) : '-'}</td>
-                          <td className="p-2 text-right font-medium">{formatCurrency(t.balance)}</td>
-                        </tr>
-                      ))
+                      transactions.map((t, i) => {
+                        const isPurchase = (t.type || '').toLowerCase() === 'purchase'
+                        const purchaseMatch = isPurchase ? purchases.find(p => (p.invoiceNo || '') === (t.reference || '')) : null
+                        const hasBalance = purchaseMatch && (purchaseMatch.balanceAmount || 0) > 0
+                        return (
+                          <tr key={i} className="border-t border-primary-100 hover:bg-primary-50">
+                            <td className="p-2">{formatDate(t.date)}</td>
+                            <td className="p-2 font-medium">{t.type}</td>
+                            <td className="p-2">{t.reference || '-'}</td>
+                            <td className="p-2 text-right">{t.debit > 0 ? formatCurrency(t.debit) : '-'}</td>
+                            <td className="p-2 text-right">{t.credit > 0 ? formatCurrency(t.credit) : '-'}</td>
+                            <td className="p-2 text-right font-medium">{formatCurrency(t.balance)}</td>
+                            <td className="p-2 text-center">
+                              {hasBalance ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPaymentForm(prev => ({ ...prev, amount: String(purchaseMatch.balanceAmount || 0) }))
+                                    setPreFillPayment({ amount: String(purchaseMatch.balanceAmount || 0), reference: purchaseMatch.invoiceNo || '' })
+                                    setShowRecordPayment(true)
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 hover:bg-green-200 rounded text-xs font-medium"
+                                  title={`Pay ${formatCurrency(purchaseMatch.balanceAmount)} towards this bill (FIFO)`}
+                                >
+                                  <Banknote className="h-3.5 w-3.5" /> Pay
+                                </button>
+                              ) : (
+                                <span className="text-primary-400 text-xs">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })
                     )}
                   </tbody>
                 </table>
               </div>
+              {balance != null && transactions.length > 0 && (
+                <div className="p-3 bg-primary-50 border-t border-lime-300 text-sm font-medium text-primary-800">
+                  Total paid: {formatCurrency(balance.totalPayments || 0)} &nbsp;|&nbsp; Pending balance: {formatCurrency(balance.netPayable || 0)}
+                </div>
+              )}
             </div>
           )}
 
           {activeTab === 'purchases' && (
             <div className="bg-white rounded-lg border-2 border-lime-300 overflow-hidden">
+              <p className="text-xs text-primary-500 px-4 py-2 border-b border-lime-200 bg-lime-50/50">Each bill shows Paid / Partial / Unpaid. Click Pay to record payment (FIFO).</p>
+              {balance != null && (
+                <div className="px-4 py-2 border-b border-lime-200 bg-primary-50/50 text-xs font-medium text-primary-800">
+                  Total paid: {formatCurrency(balance.totalPayments || 0)} &nbsp;|&nbsp; Pending balance: {formatCurrency(balance.netPayable || 0)}
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-primary-100">
@@ -303,30 +400,43 @@ const SupplierDetailPage = () => {
                       <th className="text-right p-2">Paid</th>
                       <th className="text-right p-2">Balance</th>
                       <th className="text-center p-2">Status</th>
+                      <th className="text-center p-2">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {purchases.length === 0 ? (
-                      <tr><td colSpan={6} className="p-4 text-center text-primary-500">No purchases</td></tr>
+                      <tr><td colSpan={7} className="p-4 text-center text-primary-500">No purchases</td></tr>
                     ) : (
-                      purchases.map(p => (
-                        <tr key={p.id} className="border-t border-primary-100 hover:bg-primary-50">
-                          <td className="p-2 font-medium">{p.invoiceNo}</td>
-                          <td className="p-2">{formatDate(p.purchaseDate)}</td>
-                          <td className="p-2 text-right">{formatCurrency(p.totalAmount || 0)}</td>
-                          <td className="p-2 text-right text-green-600">{formatCurrency(p.paidAmount || 0)}</td>
-                          <td className="p-2 text-right text-amber-600">{formatCurrency(p.balanceAmount || 0)}</td>
-                          <td className="p-2 text-center">
-                            <span className={`px-1.5 py-0.5 rounded text-xs ${
-                              (p.paymentStatus || '').toLowerCase() === 'paid' ? 'bg-green-100 text-green-800' :
-                              (p.paymentStatus || '').toLowerCase() === 'partial' ? 'bg-amber-100 text-amber-800' :
-                              'bg-neutral-100 text-neutral-700'
-                            }`}>
-                              {p.paymentStatus || 'Unpaid'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
+                      purchases.map(p => {
+                        const hasBalance = (p.balanceAmount || 0) > 0
+                        return (
+                          <tr key={p.id} className="border-t border-primary-100 hover:bg-primary-50">
+                            <td className="p-2 font-medium">{p.invoiceNo}</td>
+                            <td className="p-2">{formatDate(p.purchaseDate)}</td>
+                            <td className="p-2 text-right">{formatCurrency(p.totalAmount || 0)}</td>
+                            <td className="p-2 text-right text-green-600">{formatCurrency(p.paidAmount || 0)}</td>
+                            <td className="p-2 text-right text-amber-600">{formatCurrency(p.balanceAmount || 0)}</td>
+                            <td className="p-2 text-center">
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                (p.paymentStatus || '').toLowerCase() === 'paid' ? 'bg-green-100 text-green-800' :
+                                (p.paymentStatus || '').toLowerCase() === 'partial' ? 'bg-amber-100 text-amber-800' :
+                                'bg-neutral-100 text-neutral-700'
+                              }`}>
+                                {p.paymentStatus || 'Unpaid'}
+                              </span>
+                            </td>
+                            <td className="p-2 text-center">
+                              {hasBalance ? (
+                                <button type="button" onClick={() => { setPaymentForm(prev => ({ ...prev, amount: String(p.balanceAmount || 0) })); setPreFillPayment({ amount: String(p.balanceAmount || 0), reference: p.invoiceNo || '' }); setShowRecordPayment(true) }} className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 hover:bg-green-200 rounded text-xs font-medium">
+                                  <Banknote className="h-3.5 w-3.5" /> Pay
+                                </button>
+                              ) : (
+                                <span className="text-primary-400 text-xs">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })
                     )}
                   </tbody>
                 </table>
