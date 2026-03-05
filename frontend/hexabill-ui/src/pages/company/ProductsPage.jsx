@@ -479,6 +479,28 @@ const ProductsPage = () => {
             </button>
             {canManageInventory && (
               <button
+                onClick={async () => {
+                  try {
+                    const res = await productsAPI.recomputeStock()
+                    if (res?.success) {
+                      const n = res?.data?.productsUpdated ?? 0
+                      toast.success(`Stock recomputed from inventory movements (${n} products).`)
+                      await loadProducts()
+                    } else toast.error(res?.message || 'Recompute failed')
+                  } catch (e) {
+                    toast.error(e?.response?.data?.message || 'Recompute failed')
+                  }
+                }}
+                className="inline-flex items-center justify-center px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 border border-primary-300 rounded-lg text-xs sm:text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 transition-colors flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+                title="Recompute stock from purchase/sale movements (fix drift)"
+              >
+                <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Recompute Stock</span>
+                <span className="sm:hidden">Recompute</span>
+              </button>
+            )}
+            {canManageInventory && (
+              <button
                 onClick={handleResetAllStock}
                 className="inline-flex items-center justify-center px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 border border-error/30 rounded-lg text-xs sm:text-sm font-medium text-error bg-error/10 hover:bg-error/20 transition-colors flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
                 title="Reset all product stock to zero (Admin/Owner only)"

@@ -25,6 +25,8 @@ namespace HexaBill.Api.Modules.Inventory
         Task<List<PriceChangeLogDto>> GetPriceChangeHistoryAsync(int productId, int tenantId);
         Task<int> ResetAllStockAsync(int userId, int tenantId);
         Task<BulkPriceUpdateResponse> BulkUpdatePricesAsync(BulkPriceUpdateRequest request, int tenantId, int? userId = null);
+        /// <summary>Recompute Product.StockQty from InventoryTransactions (SUM of ChangeQty per product). Use to repair drift.</summary>
+        Task<int> RecomputeStockFromMovementsAsync(int tenantId);
     }
 
     public class ProductService : IProductService
@@ -855,6 +857,20 @@ namespace HexaBill.Api.Modules.Inventory
 
             await _context.SaveChangesAsync();
             return count;
+        }
+
+        /// <summary>Recompute stock from inventory movements. Stock = SUM(ChangeQty) per product. Run to fix drift.</summary>
+        public async Task<int> RecomputeStockFromMovementsAsync(int tenantId)
+        {
+            var updated = await _context.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE ""Products"" p
+                SET ""StockQty"" = COALESCE((
+                    SELECT SUM(it.""ChangeQty"") FROM ""InventoryTransactions"" it
+                    WHERE it.""ProductId"" = p.""Id"" AND (it.""TenantId"" = p.""TenantId"" OR (it.""TenantId"" IS NULL AND p.""TenantId"" IS NULL))
+                ), 0),
+                ""UpdatedAt"" = (now() AT TIME ZONE 'utc')
+                WHERE p.""TenantId"" = {tenantId}");
+            return updated;
         }
     }
 }

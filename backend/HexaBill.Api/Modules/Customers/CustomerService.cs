@@ -297,8 +297,8 @@ namespace HexaBill.Api.Modules.Customers
                 .AsNoTracking() // Performance: No change tracking needed
                 .AsQueryable();
 
-            // FIX: When both branchId and routeId are provided, include customers that match branch OR are on route
-            // This ensures customers assigned via RouteCustomers table are shown even if they have different branchId
+            // FIX: When both branchId and routeId are provided, include customers that match branch OR are on route OR are unassigned
+            // Unassigned (BranchId=null AND RouteId=null) must appear in POS so Select Customer shows all customers
             if (branchId.HasValue && routeId.HasValue)
             {
                 // Get customers assigned to this route via RouteCustomers table
@@ -307,24 +307,25 @@ namespace HexaBill.Api.Modules.Customers
                     .Select(rc => rc.CustomerId)
                     .ToListAsync();
                 
-                // Include customers that match branch OR are assigned to route (via RouteCustomers or direct RouteId)
+                // Include: match branch, match route, on route via RouteCustomers, OR unassigned (can be served from any branch/route)
                 query = query.Where(c => 
                     c.BranchId == branchId.Value || 
                     c.RouteId == routeId.Value || 
-                    routeCustomerIds.Contains(c.Id));
+                    routeCustomerIds.Contains(c.Id) ||
+                    (c.BranchId == null && c.RouteId == null));
             }
             else if (branchId.HasValue)
             {
-                query = query.Where(c => c.BranchId == branchId.Value);
+                query = query.Where(c => c.BranchId == branchId.Value || (c.BranchId == null && c.RouteId == null));
             }
             else if (routeId.HasValue)
             {
-                // Customers on route: either Customer.RouteId or in RouteCustomers
+                // Customers on route: either Customer.RouteId or in RouteCustomers, or unassigned
                 var routeCustomerIds = await _context.RouteCustomers
                     .Where(rc => rc.RouteId == routeId.Value)
                     .Select(rc => rc.CustomerId)
                     .ToListAsync();
-                query = query.Where(c => c.RouteId == routeId.Value || routeCustomerIds.Contains(c.Id));
+                query = query.Where(c => c.RouteId == routeId.Value || routeCustomerIds.Contains(c.Id) || (c.BranchId == null && c.RouteId == null));
             }
             // Staff with no branch/route filter: restrict to assigned branches and routes
             if (!branchId.HasValue && !routeId.HasValue && (restrictToBranchIds != null || restrictToRouteIds != null))

@@ -17,6 +17,8 @@ namespace HexaBill.Api.Models
         // MULTI-TENANT: Tenant identification (new, replaces OwnerId)
         public int? TenantId { get; set; }
         
+        /// <summary>Optional FK to Suppliers; kept for backward compatibility with SupplierName.</summary>
+        public int? SupplierId { get; set; }
         [Required]
         [MaxLength(200)]
         public string SupplierName { get; set; } = string.Empty;
@@ -36,13 +38,22 @@ namespace HexaBill.Api.Models
         public decimal? Subtotal { get; set; } // Amount before VAT (nullable for backward compatibility)
         public decimal? VatTotal { get; set; } // VAT amount (5% in UAE, nullable for backward compatibility)
         public decimal TotalAmount { get; set; } // Grand total (Subtotal + VAT) - kept for backward compatibility
-        
+
+        /// <summary>Cash = full payment at purchase; Credit = pay later; Partial = part paid now.</summary>
+        [MaxLength(20)]
+        public string? PaymentType { get; set; } // Cash, Credit, Partial
+        /// <summary>Amount paid at purchase (when PaymentType is Partial or Cash).</summary>
+        public decimal? AmountPaid { get; set; }
+        /// <summary>Due date for credit (PurchaseDate + credit terms). Overdue when DueDate &lt; Today and Balance &gt; 0.</summary>
+        public DateTime? DueDate { get; set; }
+
         public string? InvoiceFilePath { get; set; }
         public string? InvoiceFileName { get; set; }
         public int CreatedBy { get; set; }
         public DateTime CreatedAt { get; set; }
 
         // Navigation properties
+        public virtual Supplier? Supplier { get; set; }
         public virtual ICollection<PurchaseItem> Items { get; set; } = new List<PurchaseItem>();
         public virtual User CreatedByUser { get; set; } = null!;
     }

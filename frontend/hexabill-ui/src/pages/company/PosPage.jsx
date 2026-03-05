@@ -1113,6 +1113,13 @@ const PosPage = () => {
         return
       }
 
+      // Credit sales (Pending payment) require a customer for ledger and balance tracking
+      if (paymentMethod === 'Pending' && !selectedCustomer?.id) {
+        toast.error('Please select a customer for credit sales. Credit invoices must be linked to a customer.')
+        setLoading(false)
+        return
+      }
+
       // Require branch and route only when the tenant has branches/routes configured (so revenue attribution is possible)
       const hasBranchesOrRoutes = (branches?.length ?? 0) > 0 || (routes?.length ?? 0) > 0
       if (hasBranchesOrRoutes && (!selectedBranchId || !selectedRouteId)) {
