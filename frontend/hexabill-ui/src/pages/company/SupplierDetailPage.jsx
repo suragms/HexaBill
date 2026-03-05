@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, DollarSign, FileText, CreditCard, Calendar, Download } from 'lucide-react'
 import { suppliersAPI, purchasesAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
@@ -14,13 +14,14 @@ const tabs = [
 
 const SupplierDetailPage = () => {
   const { name } = useParams()
+  const [searchParams] = useSearchParams()
   const supplierName = name ? decodeURIComponent(name) : ''
   const [activeTab, setActiveTab] = useState('summary')
   const [balance, setBalance] = useState(null)
   const [transactions, setTransactions] = useState([])
   const [purchases, setPurchases] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showRecordPayment, setShowRecordPayment] = useState(false)
+  const [showRecordPayment, setShowRecordPayment] = useState(() => searchParams.get('recordPayment') === '1')
   const [saving, setSaving] = useState(false)
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
@@ -127,21 +128,23 @@ const SupplierDetailPage = () => {
 
   if (!supplierName) {
     return (
-      <div className="p-4 sm:p-6 max-w-full">
+      <div className="w-full p-4 sm:p-6">
         <Link to="/suppliers" className="inline-flex items-center gap-1 text-primary-600 hover:text-primary-800 font-medium mb-4">
           <ArrowLeft className="h-4 w-4" /> Back to Suppliers
         </Link>
-        <p className="text-primary-600">Invalid or missing supplier. Please choose a supplier from the list.</p>
+        <p className="text-primary-600">Invalid or missing supplier. Please choose a supplier from the <Link to="/suppliers" className="underline font-medium">Suppliers list</Link>.</p>
       </div>
     )
   }
 
   return (
     <div className="w-full p-4 sm:p-6">
-      <div className="mb-6 flex items-center gap-4">
-        <Link to="/suppliers" className="flex items-center gap-1 text-primary-600 hover:text-primary-800 font-medium">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <Link to="/suppliers" className="inline-flex items-center gap-1 text-primary-600 hover:text-primary-800 font-medium">
           <ArrowLeft className="h-4 w-4" /> Back to Suppliers
         </Link>
+        <span className="text-primary-400">|</span>
+        <Link to="/suppliers" className="text-sm text-primary-600 hover:text-primary-800 underline">View all suppliers</Link>
       </div>
 
       <div className="mb-6">

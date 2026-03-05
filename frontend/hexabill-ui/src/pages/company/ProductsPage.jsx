@@ -546,16 +546,16 @@ const ProductsPage = () => {
           </div>
         </div>
 
-        {/* Banner: many products with 0 stock after purchases → run Recompute Stock */}
+        {/* Banner: any products with 0 stock after purchases → run Recompute Stock */}
         {products.length > 0 && (() => {
           const zeroCount = products.filter(p => (p.stockQty ?? 0) === 0).length
-          const showBanner = zeroCount >= Math.min(3, products.length) && canManageInventory
+          const showBanner = zeroCount > 0 && canManageInventory
           if (!showBanner) return null
           return (
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-amber-800">
+            <div className="mt-4 rounded-lg border-2 border-amber-300 bg-amber-50 p-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-amber-900">
                 <AlertTriangle className="inline h-4 w-4 mr-1.5 align-middle text-amber-600" />
-                Stock showing zero for many products after adding purchases? Click <strong>Recompute Stock</strong> to sync from purchase and sales movements.
+                <strong>Stocks showing zero after purchases?</strong> Click <strong>Recompute Stock</strong> below to sync from purchase and sales movements ({zeroCount} product{zeroCount !== 1 ? 's' : ''} with 0 stock).
               </p>
               <button
                 type="button"

@@ -95,44 +95,51 @@ const SuppliersPage = () => {
 
   return (
     <div className="w-full p-4 sm:p-6">
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-primary-900">Suppliers</h1>
-          <p className="text-primary-600 mt-1">Manage suppliers, create new ones, search the full list, and open Supplier Ledger for balances and payments.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium shadow-sm"
-        >
-          <Plus className="h-4 w-4" /> Add Supplier
-        </button>
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-primary-900">Suppliers</h1>
+        <p className="text-primary-600 mt-1 text-sm">Manage suppliers, create new ones, search the full list, and open Supplier Ledger for balances and payments.</p>
       </div>
 
-      <div className="bg-white rounded-lg border-2 border-lime-300 shadow-sm mb-4 p-4 w-full">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary-400" />
+      {/* Search bar + Add Supplier — always visible at top */}
+      <div className="bg-white rounded-xl border-2 border-primary-200 shadow-sm mb-4 p-4 w-full">
+        <p className="text-xs font-semibold text-primary-700 uppercase tracking-wide mb-3">Search & create</p>
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary-500 pointer-events-none" />
             <input
               type="text"
               placeholder="Search suppliers by name or phone..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border-2 border-lime-300 rounded-lg"
+              className="w-full pl-10 pr-3 py-2.5 border-2 border-lime-300 rounded-lg text-primary-900 placeholder:text-primary-400 focus:ring-2 focus:ring-primary-400 focus:border-primary-500"
+              aria-label="Search suppliers"
             />
           </div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={overdueOnly} onChange={e => setOverdueOnly(e.target.checked)} className="rounded" />
-            <span className="text-sm text-primary-700">Overdue only</span>
-          </label>
-          <button onClick={loadSuppliers} disabled={loading} className="flex items-center gap-2 px-4 py-2 bg-primary-100 hover:bg-primary-200 rounded font-medium">
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer shrink-0">
+              <input type="checkbox" checked={overdueOnly} onChange={e => setOverdueOnly(e.target.checked)} className="rounded" />
+              <span className="text-sm text-primary-700">Overdue only</span>
+            </label>
+            <button onClick={loadSuppliers} disabled={loading} className="flex items-center gap-2 px-4 py-2 bg-primary-100 hover:bg-primary-200 rounded-lg font-medium shrink-0">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium shadow-sm shrink-0"
+              aria-label="Add new supplier"
+            >
+              <Plus className="h-4 w-4" /> Add Supplier
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="bg-white rounded-lg border-2 border-lime-300 shadow-sm overflow-hidden w-full">
+        <p className="text-xs text-primary-500 px-4 py-2 border-b border-lime-200 bg-lime-50/50">
+          {!loading && filteredSuppliers.length > 0 ? `Showing ${filteredSuppliers.length} supplier${filteredSuppliers.length !== 1 ? 's' : ''}. Use search above to filter. Click &quot;Supplier Ledger&quot; to open full ledger.` : 'Supplier list — use search above to filter. Click &quot;Supplier Ledger&quot; to open full ledger.'}
+        </p>
         {loading ? (
           <div className="p-8 text-center text-primary-500">Loading suppliers...</div>
         ) : (
@@ -155,7 +162,20 @@ const SuppliersPage = () => {
                 </thead>
                 <tbody>
                   {filteredSuppliers.length === 0 ? (
-                    <tr><td colSpan={10} className="p-8 text-center text-primary-500">No suppliers found</td></tr>
+                    <tr>
+                      <td colSpan={10} className="p-8 text-center">
+                        <div className="flex flex-col items-center gap-3 text-primary-600">
+                          <p className="font-medium">{suppliers.length === 0 ? 'No suppliers yet' : 'No suppliers match your search or filter'}</p>
+                          {suppliers.length === 0 ? (
+                            <button type="button" onClick={() => setShowCreateModal(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700">
+                              <Plus className="h-4 w-4" /> Add your first supplier
+                            </button>
+                          ) : (
+                            <button type="button" onClick={() => { setSearchTerm(''); setOverdueOnly(false) }} className="text-sm text-primary-600 underline hover:text-primary-800">Clear search and filters</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
                   ) : (
                     filteredSuppliers.map((s, i) => (
                       <tr key={i} className="border-t border-primary-100 hover:bg-primary-50">
@@ -182,7 +202,16 @@ const SuppliersPage = () => {
 
             <div className="md:hidden space-y-3 p-4">
               {filteredSuppliers.length === 0 ? (
-                <p className="text-center text-primary-500 py-8">No suppliers found</p>
+                <div className="text-center py-8">
+                  <p className="text-primary-600 font-medium mb-3">{suppliers.length === 0 ? 'No suppliers yet' : 'No suppliers match your search or filter'}</p>
+                  {suppliers.length === 0 ? (
+                    <button type="button" onClick={() => setShowCreateModal(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg font-medium">
+                      <Plus className="h-4 w-4" /> Add your first supplier
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => { setSearchTerm(''); setOverdueOnly(false) }} className="text-sm text-primary-600 underline">Clear search and filters</button>
+                  )}
+                </div>
               ) : (
                 filteredSuppliers.map((s, i) => (
                   <div key={i} className="bg-primary-50 rounded-lg border border-primary-200 p-4">

@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, Edit, Trash2, Eye, Save, Search, X, Filter, Calendar, TrendingUp, TrendingDown, BarChart3, DollarSign } from 'lucide-react'
 import { purchasesAPI, productsAPI, settingsAPI, suppliersAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
 import toast from 'react-hot-toast'
 import ConfirmDangerModal from '../../components/ConfirmDangerModal'
-import SupplierLedgerModal from '../../components/SupplierLedgerModal'
 
 const PurchasesPage = () => {
   const [purchases, setPurchases] = useState([])
@@ -54,7 +54,7 @@ const PurchasesPage = () => {
     confirmLabel: 'Confirm',
     onConfirm: () => { }
   })
-  const [payModal, setPayModal] = useState({ isOpen: false, supplierName: '' })
+  const navigate = useNavigate()
   const [expandedPurchaseId, setExpandedPurchaseId] = useState(null) // Phase 10: expandable mobile rows
 
   const formatDate = (dateString) => {
@@ -457,8 +457,12 @@ const PurchasesPage = () => {
         })
         loadPurchases()
         loadPendingSummary()
-        // Phase 1.3: Small delay to avoid race - API returns after commit but ensure fresh read
-        setTimeout(() => loadProducts(), 150)
+        // After create: recompute stock from movements so product qty updates everywhere
+        if (!editingPurchase) {
+          productsAPI.recomputeStock().then(() => loadProducts()).catch(() => loadProducts())
+        } else {
+          setTimeout(() => loadProducts(), 150)
+        }
       }
     } catch (error) {
       console.error('Purchase submit error:', error)
@@ -1522,13 +1526,20 @@ const PurchasesPage = () => {
                             <div className="flex flex-wrap justify-center gap-1">
                               {(['Unpaid', 'Partial'].includes(purchase.paymentStatus || '') && (
                                 <button
-                                  onClick={() => setPayModal({ isOpen: true, supplierName: purchase.supplierName })}
+                                  onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1`)}
                                   className="bg-green-50 text-green-600 hover:bg-green-600 hover:text-white border border-green-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
-                                  title="Pay"
+                                  title="Open Supplier Ledger to pay"
                                 >
                                   <DollarSign className="h-3.5 w-3.5" /> Pay
                                 </button>
-                              )}
+                              ))}
+                              <button
+                                onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}`)}
+                                className="bg-primary-50 text-primary-600 hover:bg-primary-600 hover:text-white border border-primary-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
+                                title="Supplier Ledger (full page)"
+                              >
+                                <Eye className="h-3.5 w-3.5" /> Ledger
+                              </button>
                               <button
                                 onClick={() => handleEditPurchase(purchase)}
                                 className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-300 px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1"
@@ -1643,13 +1654,20 @@ const PurchasesPage = () => {
                       <div className="flex flex-wrap items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
                         {['Unpaid', 'Partial'].includes(purchase.paymentStatus || '') && (
                           <button
-                            onClick={() => setPayModal({ isOpen: true, supplierName: purchase.supplierName })}
+                            onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1`)}
                             className="bg-green-50 text-green-600 hover:bg-green-600 hover:text-white border border-green-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
-                            title="Pay"
+                            title="Open Supplier Ledger to pay"
                           >
                             <DollarSign className="h-3.5 w-3.5" /> Pay
                           </button>
                         )}
+                        <button
+                          onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}`)}
+                          className="bg-primary-50 text-primary-600 hover:bg-primary-600 hover:text-white border border-primary-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
+                          title="Supplier Ledger"
+                        >
+                          <Eye className="h-3.5 w-3.5" /> Ledger
+                        </button>
                         <button
                           onClick={() => handleEditPurchase(purchase)}
                           className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-300 px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1"
@@ -1706,13 +1724,6 @@ const PurchasesPage = () => {
         confirmLabel={dangerModal.confirmLabel}
         onConfirm={dangerModal.onConfirm}
         onClose={() => setDangerModal(prev => ({ ...prev, isOpen: false }))}
-      />
-      <SupplierLedgerModal
-        isOpen={payModal.isOpen}
-        onClose={() => setPayModal({ isOpen: false, supplierName: '' })}
-        supplierName={payModal.supplierName}
-        initialShowRecordPayment={true}
-        onPaymentRecorded={() => { loadPurchases(); loadPendingSummary(); setPayModal({ isOpen: false, supplierName: '' }) }}
       />
     </div>
   )
