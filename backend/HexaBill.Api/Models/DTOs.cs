@@ -426,6 +426,12 @@ namespace HexaBill.Api.Models
         public bool? IncludesVat { get; set; } // True if costs include VAT, False if VAT should be added, Null for auto-detection
         [Range(0, 100, ErrorMessage = "VatPercent must be between 0 and 100")]
         public decimal? VatPercent { get; set; } // VAT percentage (default 5% for UAE)
+
+        // Payment: Cash = full at purchase, Credit = pay later, Partial = part paid now
+        [MaxLength(20)]
+        public string? PaymentType { get; set; } // Cash, Credit, Partial
+        [Range(0, 99999999.99, ErrorMessage = "AmountPaid must be non-negative")]
+        public decimal? AmountPaid { get; set; } // Required when PaymentType is Partial; when Cash, can be set to TotalAmount
         
         [Required]
         [MinLength(1, ErrorMessage = "At least one item is required")]

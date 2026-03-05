@@ -33,6 +33,9 @@ namespace HexaBill.Api.Data
         public DbSet<Subscription> Subscriptions { get; set; }
         public DbSet<Product> Products { get; set; }
         public DbSet<PriceChangeLog> PriceChangeLogs { get; set; }
+        public DbSet<SupplierCategory> SupplierCategories { get; set; }
+        public DbSet<Supplier> Suppliers { get; set; }
+        public DbSet<SupplierPayment> SupplierPayments { get; set; }
         public DbSet<Purchase> Purchases { get; set; }
         public DbSet<PurchaseItem> PurchaseItems { get; set; }
         public DbSet<Sale> Sales { get; set; }
@@ -121,6 +124,42 @@ namespace HexaBill.Api.Data
                     .HasDefaultValue(new byte[] { 0 });
             });
 
+            // SupplierCategory configuration (optional categorization)
+            modelBuilder.Entity<SupplierCategory>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.TenantId).IsRequired(false);
+                entity.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+            });
+
+            // Supplier configuration - unique (TenantId, NormalizedName)
+            modelBuilder.Entity<Supplier>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.NormalizedName).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.Phone).HasMaxLength(50);
+                entity.Property(e => e.Address).HasMaxLength(500);
+                entity.Property(e => e.OpeningBalance).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.TenantId).IsRequired(false);
+                entity.HasIndex(e => new { e.TenantId, e.NormalizedName }).IsUnique();
+                entity.HasOne(e => e.Category).WithMany(c => c.Suppliers).HasForeignKey(e => e.CategoryId).OnDelete(DeleteBehavior.SetNull); // SupplierCategory
+            });
+
+            // SupplierPayment configuration
+            modelBuilder.Entity<SupplierPayment>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.Reference).HasMaxLength(200);
+                entity.Property(e => e.TenantId).IsRequired(false);
+                entity.HasOne(e => e.Supplier).WithMany(s => s.Payments).HasForeignKey(e => e.SupplierId).OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(e => e.Purchase).WithMany().HasForeignKey(e => e.PurchaseId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasIndex(e => e.SupplierId);
+                entity.HasIndex(e => e.PaymentDate);
+            });
+
             // Purchase configuration - composite unique (OwnerId, InvoiceNo) for multi-tenant
             modelBuilder.Entity<Purchase>(entity =>
             {
@@ -137,7 +176,10 @@ namespace HexaBill.Api.Data
                 entity.Property(e => e.Subtotal).HasColumnType("decimal(18,2)").IsRequired(false);
                 entity.Property(e => e.VatTotal).HasColumnType("decimal(18,2)").IsRequired(false);
                 entity.Property(e => e.TotalAmount).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.PaymentType).HasMaxLength(20).IsRequired(false);
+                entity.Property(e => e.AmountPaid).HasColumnType("decimal(18,2)").IsRequired(false);
                 
+                entity.HasOne(e => e.Supplier).WithMany(s => s.Purchases).HasForeignKey(e => e.SupplierId).OnDelete(DeleteBehavior.SetNull);
                 entity.HasOne(e => e.CreatedByUser).WithMany().HasForeignKey(e => e.CreatedBy);
             });
 

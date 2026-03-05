@@ -23,10 +23,12 @@ namespace HexaBill.Api.Modules.Purchases
     public class PurchaseService : IPurchaseService
     {
         private readonly AppDbContext _context;
+        private readonly ISupplierService _supplierService;
 
-        public PurchaseService(AppDbContext context)
+        public PurchaseService(AppDbContext context, ISupplierService supplierService)
         {
             _context = context;
+            _supplierService = supplierService;
         }
 
         public async Task<PagedResponse<PurchaseDto>> GetPurchasesAsync(int tenantId, int page = 1, int pageSize = 10, DateTime? startDate = null, DateTime? endDate = null, string? supplierName = null, string? category = null)
@@ -144,11 +146,15 @@ namespace HexaBill.Api.Modules.Purchases
                 Subtotal = purchase.Subtotal,
                 VatTotal = purchase.VatTotal,
                 TotalAmount = purchase.TotalAmount,
+                PaymentType = purchase.PaymentType,
+                AmountPaid = purchase.AmountPaid,
                 Items = purchase.Items.Select(i => new PurchaseItemDto
                 {
                     Id = i.Id,
                     ProductId = i.ProductId,
                     ProductName = i.Product.NameEn,
+                    Sku = i.Product.Sku,
+                    StockQty = i.Product.StockQty,
                     UnitType = i.UnitType,
                     Qty = i.Qty,
                     UnitCost = i.UnitCost,
@@ -202,6 +208,15 @@ namespace HexaBill.Api.Modules.Purchases
                 throw new InvalidOperationException(
                     $"Purchase invoice '{request.InvoiceNo}' from supplier '{request.SupplierName}' already exists.");
             }
+
+            var paymentType = string.IsNullOrWhiteSpace(request.PaymentType) ? "Credit" : request.PaymentType.Trim();
+            if (paymentType.Equals("Partial", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!request.AmountPaid.HasValue || request.AmountPaid.Value <= 0)
+                    throw new InvalidOperationException("Amount paid is required when payment type is Partial and must be greater than zero.");
+            }
+            if (request.AmountPaid.HasValue && request.AmountPaid.Value < 0)
+                throw new InvalidOperationException("Amount paid cannot be negative.");
             
             // CRITICAL: NpgsqlRetryingExecutionStrategy does not support user-initiated transactions.
             // Wrap in CreateExecutionStrategy().ExecuteAsync() so the transaction is retriable.
@@ -332,10 +347,18 @@ namespace HexaBill.Api.Modules.Purchases
                 Console.WriteLine($"?? Subtotal={subtotal:C}, VAT={vatTotal:C} ({vatPercent}%), Total={totalAmount:C}");
                 
                 var purchaseDate = request.PurchaseDate == default ? DateTime.UtcNow : request.PurchaseDate.ToUtcKind();
+                var supplier = await _supplierService.GetOrCreateByNameAsync(tenantId, request.SupplierName);
+                var paymentType = string.IsNullOrWhiteSpace(request.PaymentType) ? "Credit" : request.PaymentType.Trim();
+                var amountPaid = request.AmountPaid ?? 0;
+                if (paymentType.Equals("Cash", StringComparison.OrdinalIgnoreCase))
+                    amountPaid = totalAmount;
+                if (paymentType.Equals("Partial", StringComparison.OrdinalIgnoreCase) && amountPaid > totalAmount)
+                    throw new InvalidOperationException($"Amount paid ({amountPaid:N2}) cannot exceed total amount ({totalAmount:N2}).");
                 var purchase = new Purchase
                 {
                     OwnerId = tenantId,
                     TenantId = tenantId,
+                    SupplierId = supplier.Id,
                     SupplierName = request.SupplierName,
                     InvoiceNo = request.InvoiceNo,
                     PurchaseDate = purchaseDate, // CRITICAL: Ensure UTC kind for PostgreSQL
@@ -343,12 +366,30 @@ namespace HexaBill.Api.Modules.Purchases
                     Subtotal = subtotal, // NEW: Amount before VAT
                     VatTotal = vatTotal, // NEW: VAT amount
                     TotalAmount = totalAmount, // Grand total (for backward compatibility)
+                    PaymentType = paymentType,
+                    AmountPaid = amountPaid > 0 ? amountPaid : null,
                     CreatedBy = userId,
                     CreatedAt = DateTime.UtcNow
                 };
 
                 _context.Purchases.Add(purchase);
                 await _context.SaveChangesAsync();
+
+                // Record supplier payment when Cash (full) or Partial
+                if (amountPaid > 0 && (paymentType.Equals("Cash", StringComparison.OrdinalIgnoreCase) || paymentType.Equals("Partial", StringComparison.OrdinalIgnoreCase)))
+                {
+                    _context.SupplierPayments.Add(new SupplierPayment
+                    {
+                        TenantId = tenantId,
+                        SupplierId = supplier.Id,
+                        Amount = amountPaid,
+                        PaymentDate = purchaseDate,
+                        Reference = request.InvoiceNo,
+                        PurchaseId = purchase.Id,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    await _context.SaveChangesAsync();
+                }
 
                 // Update purchase items with purchase ID
                 foreach (var item in purchaseItems)
@@ -440,7 +481,9 @@ namespace HexaBill.Api.Modules.Purchases
                     .ToListAsync();
                 _context.InventoryTransactions.RemoveRange(oldTransactions);
 
-                // Update purchase details
+                // Update purchase details (get or create supplier for SupplierId)
+                var supplier = await _supplierService.GetOrCreateByNameAsync(tenantId, request.SupplierName);
+                purchase.SupplierId = supplier.Id;
                 purchase.SupplierName = request.SupplierName;
                 purchase.InvoiceNo = request.InvoiceNo ?? purchase.InvoiceNo;
                 purchase.PurchaseDate = request.PurchaseDate == default ? purchase.PurchaseDate : request.PurchaseDate.ToUtcKind();
@@ -546,6 +589,8 @@ namespace HexaBill.Api.Modules.Purchases
                 purchase.Subtotal = subtotal;
                 purchase.VatTotal = vatTotal;
                 purchase.TotalAmount = totalAmount;
+                purchase.PaymentType = string.IsNullOrWhiteSpace(request.PaymentType) ? null : request.PaymentType.Trim();
+                purchase.AmountPaid = request.AmountPaid > 0 ? request.AmountPaid : null;
 
                 // Create audit log for update
                 var auditLog = new AuditLog
@@ -795,6 +840,9 @@ namespace HexaBill.Api.Modules.Purchases
         public decimal? Subtotal { get; set; } // Amount before VAT
         public decimal? VatTotal { get; set; } // VAT amount
         public decimal TotalAmount { get; set; } // Grand total
+
+        public string? PaymentType { get; set; } // Cash, Credit, Partial
+        public decimal? AmountPaid { get; set; }
             
         public List<PurchaseItemDto> Items { get; set; } = new();
     }
@@ -804,6 +852,8 @@ namespace HexaBill.Api.Modules.Purchases
         public int Id { get; set; }
         public int ProductId { get; set; }
         public string ProductName { get; set; } = string.Empty;
+        public string Sku { get; set; } = string.Empty;
+        public decimal StockQty { get; set; }
         public string UnitType { get; set; } = string.Empty;
         public decimal Qty { get; set; }
         public decimal UnitCost { get; set; } // Cost INCLUDING VAT (for backward compatibility)

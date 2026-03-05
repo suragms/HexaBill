@@ -11,9 +11,18 @@ namespace HexaBill.Api.Modules.Purchases
 {
     public interface ISupplierService
     {
+        /// <summary>Get or create a supplier by name (for Purchase creation).</summary>
+        Task<Supplier> GetOrCreateByNameAsync(int tenantId, string supplierName);
+        /// <summary>Search suppliers by name for autocomplete.</summary>
+        Task<List<SupplierSearchDto>> SearchAsync(int tenantId, string? q, int limit = 20);
         Task<SupplierBalanceDto> GetSupplierBalanceAsync(int tenantId, string supplierName);
         Task<List<SupplierTransactionDto>> GetSupplierTransactionsAsync(int tenantId, string supplierName, DateTime? fromDate = null, DateTime? toDate = null);
         Task<List<SupplierSummaryDto>> GetAllSuppliersSummaryAsync(int tenantId);
+    }
+
+    public static class SupplierNormalize
+    {
+        public static string Normalize(string name) => string.IsNullOrWhiteSpace(name) ? "" : name.Trim().ToUpperInvariant();
     }
 
     public class SupplierService : ISupplierService
@@ -23,6 +32,43 @@ namespace HexaBill.Api.Modules.Purchases
         public SupplierService(AppDbContext context)
         {
             _context = context;
+        }
+
+        public async Task<Supplier> GetOrCreateByNameAsync(int tenantId, string supplierName)
+        {
+            if (string.IsNullOrWhiteSpace(supplierName))
+                throw new ArgumentException("Supplier name is required.", nameof(supplierName));
+            var normalized = SupplierNormalize.Normalize(supplierName);
+            var supplier = await _context.Suppliers
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.NormalizedName == normalized);
+            if (supplier != null) return supplier;
+            supplier = new Supplier
+            {
+                TenantId = tenantId,
+                Name = supplierName.Trim(),
+                NormalizedName = normalized,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Suppliers.Add(supplier);
+            await _context.SaveChangesAsync();
+            return supplier;
+        }
+
+        public async Task<List<SupplierSearchDto>> SearchAsync(int tenantId, string? q, int limit = 20)
+        {
+            var query = _context.Suppliers
+                .Where(s => s.TenantId == tenantId && s.IsActive);
+            if (!string.IsNullOrWhiteSpace(q))
+            {
+                var term = q.Trim().ToUpperInvariant();
+                query = query.Where(s => s.Name.ToUpper().Contains(term) || (s.NormalizedName != null && s.NormalizedName.Contains(term)));
+            }
+            return await query
+                .OrderBy(s => s.Name)
+                .Take(limit)
+                .Select(s => new SupplierSearchDto { Id = s.Id, Name = s.Name, Phone = s.Phone })
+                .ToListAsync();
         }
 
         public async Task<SupplierBalanceDto> GetSupplierBalanceAsync(int tenantId, string supplierName)
@@ -38,8 +84,17 @@ namespace HexaBill.Api.Modules.Purchases
                 .Where(pr => pr.Purchase.TenantId == tenantId && pr.Purchase.SupplierName == supplierName)
                 .SumAsync(pr => (decimal?)pr.GrandTotal) ?? 0;
 
-            // Net payable = Purchases - Returns
-            var netPayable = totalPurchases - totalPurchaseReturns;
+            // Total supplier payments (credit) - by supplier name via SupplierId
+            var supplierIds = await _context.Suppliers
+                .Where(s => s.TenantId == tenantId && s.NormalizedName == SupplierNormalize.Normalize(supplierName))
+                .Select(s => s.Id)
+                .ToListAsync();
+            var totalPayments = await _context.SupplierPayments
+                .Where(sp => supplierIds.Contains(sp.SupplierId))
+                .SumAsync(sp => (decimal?)sp.Amount) ?? 0;
+
+            // Net payable = Purchases - Returns - Payments
+            var netPayable = totalPurchases - totalPurchaseReturns - totalPayments;
 
             return new SupplierBalanceDto
             {
@@ -112,6 +167,30 @@ namespace HexaBill.Api.Modules.Purchases
                 });
             }
 
+            // Supplier payments (credits) - by supplier name
+            var supplierIds = await _context.Suppliers
+                .Where(s => s.TenantId == tenantId && s.NormalizedName == SupplierNormalize.Normalize(supplierName))
+                .Select(s => s.Id)
+                .ToListAsync();
+            var paymentsQuery = _context.SupplierPayments.Where(sp => supplierIds.Contains(sp.SupplierId));
+            if (fromDate.HasValue)
+                paymentsQuery = paymentsQuery.Where(sp => sp.PaymentDate >= fromDate.Value);
+            if (toDate.HasValue)
+                paymentsQuery = paymentsQuery.Where(sp => sp.PaymentDate <= toDate.Value.AddDays(1));
+            var payments = await paymentsQuery.OrderBy(sp => sp.PaymentDate).ToListAsync();
+            foreach (var payment in payments)
+            {
+                transactions.Add(new SupplierTransactionDto
+                {
+                    Date = payment.PaymentDate,
+                    Type = "Payment",
+                    Reference = payment.Reference ?? $"Payment #{payment.Id}",
+                    Debit = 0,
+                    Credit = payment.Amount,
+                    Balance = 0
+                });
+            }
+
             // Sort by date and calculate running balance
             transactions = transactions.OrderBy(t => t.Date).ToList();
             decimal runningBalance = 0;
@@ -176,6 +255,13 @@ namespace HexaBill.Api.Modules.Purchases
         public decimal NetPayable { get; set; }
         public decimal TotalPurchases { get; set; }
         public DateTime? LastPurchaseDate { get; set; }
+    }
+
+    public class SupplierSearchDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string? Phone { get; set; }
     }
 }
 

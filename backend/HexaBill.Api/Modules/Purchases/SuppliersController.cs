@@ -23,6 +23,31 @@ namespace HexaBill.Api.Modules.Purchases
             _supplierService = supplierService;
         }
 
+        [HttpGet("search")]
+        public async Task<ActionResult<ApiResponse<List<SupplierSearchDto>>>> Search([FromQuery] string? q = null, [FromQuery] int limit = 20)
+        {
+            try
+            {
+                var tenantId = CurrentTenantId;
+                var result = await _supplierService.SearchAsync(tenantId, q, limit);
+                return Ok(new ApiResponse<List<SupplierSearchDto>>
+                {
+                    Success = true,
+                    Message = "Suppliers search completed",
+                    Data = result
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ApiResponse<List<SupplierSearchDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred",
+                    Errors = new List<string> { ex.Message }
+                });
+            }
+        }
+
         [HttpGet("balance/{supplierName}")]
         public async Task<ActionResult<ApiResponse<SupplierBalanceDto>>> GetSupplierBalance(string supplierName)
         {

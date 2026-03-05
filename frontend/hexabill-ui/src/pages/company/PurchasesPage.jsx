@@ -31,6 +31,8 @@ const PurchasesPage = () => {
     invoiceNo: '',
     purchaseDate: new Date().toISOString().split('T')[0],
     expenseCategory: 'Inventory', // Default category
+    paymentType: 'Credit', // Cash, Credit, Partial
+    amountPaid: '',
     items: []
   })
   const [products, setProducts] = useState([])
@@ -272,7 +274,8 @@ const PurchasesPage = () => {
       sku: product.sku,
       unitType: product.unitType,
       qty: 1,
-      unitCost: unitCost
+      unitCost: unitCost,
+      stockQty: product.stockQty ?? 0
     }
     setFormData({
       ...formData,
@@ -326,13 +329,30 @@ const PurchasesPage = () => {
       return
     }
 
+    const totalAmount = calculateTotal() * (1 + vatPercent / 100)
+    if (formData.paymentType === 'Partial') {
+      const paid = parseFloat(formData.amountPaid)
+      if (isNaN(paid) || paid <= 0) {
+        toast.error('Please enter amount paid (greater than 0) for partial payment.')
+        return
+      }
+      if (paid > totalAmount) {
+        toast.error(`Amount paid (AED ${paid.toFixed(2)}) cannot exceed total amount (AED ${totalAmount.toFixed(2)}).`)
+        return
+      }
+    }
+
     try {
       const purchaseDate = formData.purchaseDate || new Date().toISOString().split('T')[0]
+      const amountPaidNum = formData.paymentType === 'Partial' && formData.amountPaid !== '' && formData.amountPaid != null
+        ? parseFloat(formData.amountPaid) : (formData.paymentType === 'Cash' ? totalAmount : 0)
       const purchaseData = {
         supplierName: (formData.supplierName || '').trim(),
         invoiceNo: (formData.invoiceNo || '').trim(),
         purchaseDate,
         expenseCategory: formData.expenseCategory || 'Inventory',
+        paymentType: formData.paymentType || 'Credit',
+        amountPaid: amountPaidNum > 0 ? amountPaidNum : null,
         items: formData.items.map(item => ({
           productId: Number(item.productId),
           unitType: (item.unitType || 'PCS').trim().toUpperCase(),
@@ -366,6 +386,8 @@ const PurchasesPage = () => {
           invoiceNo: '',
           purchaseDate: new Date().toISOString().split('T')[0],
           expenseCategory: 'Inventory',
+          paymentType: 'Credit',
+          amountPaid: '',
           items: []
         })
         loadPurchases()
@@ -375,8 +397,15 @@ const PurchasesPage = () => {
       console.error('Purchase submit error:', error)
       const data = error?.response?.data
       const errors = data?.errors
-      const errorMsg = (Array.isArray(errors) && errors.length && errors[0]) || data?.message || error?.message || 'Failed to save purchase'
-      toast.error(editingPurchase ? `Update failed: ${errorMsg}` : `Create failed: ${errorMsg}`, { duration: 6000 })
+      const message = data?.message || error?.message || 'Failed to save purchase'
+      const errorMsg = (Array.isArray(errors) && errors.length && errors[0]) || message
+      // Clear messages for common cases: duplicate invoice, stock, tenant
+      if (typeof errorMsg === 'string' && (errorMsg.includes('already exists') || errorMsg.includes('duplicate') || errorMsg.includes('Invoice')))
+        toast.error(`Duplicate invoice: ${errorMsg}`, { duration: 6000 })
+      else if (typeof errorMsg === 'string' && (errorMsg.includes('stock') || errorMsg.includes('Stock')))
+        toast.error(`Stock error: ${errorMsg}`, { duration: 6000 })
+      else
+        toast.error(editingPurchase ? `Update failed: ${errorMsg}` : `Create failed: ${errorMsg}`, { duration: 6000 })
     }
   }
 
@@ -406,13 +435,16 @@ const PurchasesPage = () => {
       invoiceNo: purchase.invoiceNo || '',
       purchaseDate: purchase.purchaseDate ? new Date(purchase.purchaseDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       expenseCategory: purchase.expenseCategory || 'Inventory',
+      paymentType: purchase.paymentType || 'Credit',
+      amountPaid: purchase.amountPaid != null && purchase.amountPaid !== '' ? String(purchase.amountPaid) : '',
       items: purchase.items?.map(item => ({
         productId: item.productId,
         productName: item.productName || item.product?.nameEn || '',
-        sku: item.product?.sku || '',
+        sku: item.product?.sku || item.sku || '',
         unitType: item.unitType || 'CRTN',
         qty: item.qty || 0,
-        unitCost: item.unitCost || 0
+        unitCost: item.unitCost || 0,
+        stockQty: item.product?.stockQty ?? item.stockQty ?? null
       })) || []
     })
     setShowForm(true)
@@ -1005,6 +1037,35 @@ const PurchasesPage = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4 mb-4 sm:mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-primary-700 mb-1">Payment Type</label>
+                  <select
+                    className="w-full px-3 py-2 border-2 border-lime-300 rounded text-sm"
+                    value={formData.paymentType || 'Credit'}
+                    onChange={(e) => setFormData({ ...formData, paymentType: e.target.value })}
+                  >
+                    <option value="Cash">Cash (full payment)</option>
+                    <option value="Credit">Credit (pay later)</option>
+                    <option value="Partial">Partial (part paid now)</option>
+                  </select>
+                </div>
+                {formData.paymentType === 'Partial' && (
+                  <div>
+                    <label className="block text-sm font-medium text-primary-700 mb-1">Amount Paid (AED) *</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="w-full px-3 py-2 border-2 border-lime-300 rounded text-sm"
+                      value={formData.amountPaid ?? ''}
+                      onChange={(e) => setFormData({ ...formData, amountPaid: e.target.value })}
+                      placeholder="Enter amount paid now"
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* Product Search */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-primary-700 mb-1">Add Product (F3)</label>
@@ -1071,6 +1132,7 @@ const PurchasesPage = () => {
                             <div className="min-w-0 flex-1">
                               <p className="font-medium text-primary-800 text-sm truncate">{item.productName}</p>
                               <p className="text-xs text-primary-500">{item.sku}</p>
+                              <p className="text-xs text-primary-600">Stock: {item.stockQty != null && item.stockQty !== '' ? Number(item.stockQty) : '—'}</p>
                             </div>
                             <button type="button" onClick={() => removeItem(index)} className="shrink-0 text-red-600 p-1" aria-label="Remove">
                               <Trash2 className="h-4 w-4" />
@@ -1132,6 +1194,7 @@ const PurchasesPage = () => {
                         <th className="px-2 py-2 border-r border-lime-300 text-left">SL</th>
                         <th className="px-2 py-2 border-r border-lime-300 text-left">Description</th>
                         <th className="px-2 py-2 border-r border-lime-300 text-left">Unit</th>
+                        <th className="px-2 py-2 border-r border-lime-300 text-left">Stock</th>
                         <th className="px-2 py-2 border-r border-lime-300 text-left">Qty</th>
                         <th className="px-2 py-2 border-r border-lime-300 text-left">Unit Cost</th>
                         <th className="px-2 py-2 border-r border-lime-300 text-left">Subtotal</th>
@@ -1143,7 +1206,7 @@ const PurchasesPage = () => {
                     <tbody className="divide-y divide-lime-200">
                       {formData.items.length === 0 ? (
                         <tr>
-                          <td colSpan="9" className="px-4 py-8 text-center text-primary-500">
+                          <td colSpan="10" className="px-4 py-8 text-center text-primary-500">
                             No items. Search and add products.
                           </td>
                         </tr>
@@ -1176,6 +1239,9 @@ const PurchasesPage = () => {
                                 <option value="LTR">LTR</option>
                                 <option value="MTR">MTR</option>
                               </select>
+                            </td>
+                            <td className="px-2 py-2 border-r border-lime-200 text-primary-600">
+                              {item.stockQty != null && item.stockQty !== '' ? Number(item.stockQty) : '—'}
                             </td>
                             <td className="px-2 py-2 border-r border-lime-200">
                               <input
