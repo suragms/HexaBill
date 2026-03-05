@@ -79,7 +79,7 @@ namespace HexaBill.Api.Modules.Purchases
                 query = query.Where(p => p.ExpenseCategory == category);
             }
 
-            // Apply payment status filter (Paid, Partial, Unpaid)
+            // Apply payment status filter (Paid, Partial, Unpaid, Overdue)
             if (!string.IsNullOrWhiteSpace(paymentStatus) && !paymentStatus.Equals("all", StringComparison.OrdinalIgnoreCase))
             {
                 var status = paymentStatus.Trim();
@@ -89,6 +89,8 @@ namespace HexaBill.Api.Modules.Purchases
                     query = query.Where(p => (p.AmountPaid ?? 0) > 0 && (p.AmountPaid ?? 0) < p.TotalAmount);
                 else if (status.Equals("Unpaid", StringComparison.OrdinalIgnoreCase))
                     query = query.Where(p => (p.AmountPaid ?? 0) <= 0);
+                else if (status.Equals("Overdue", StringComparison.OrdinalIgnoreCase))
+                    query = query.Where(p => p.DueDate != null && p.DueDate.Value < DateTime.UtcNow && (p.TotalAmount - (p.AmountPaid ?? 0)) > 0);
             }
 
             var totalCount = await query.CountAsync();
@@ -110,6 +112,8 @@ namespace HexaBill.Api.Modules.Purchases
                     AmountPaid = p.AmountPaid,
                     Balance = p.TotalAmount - (p.AmountPaid ?? 0),
                     PaymentStatus = (p.AmountPaid ?? 0) >= p.TotalAmount ? "Paid" : ((p.AmountPaid ?? 0) > 0 ? "Partial" : "Unpaid"),
+                    DueDate = p.DueDate,
+                    IsOverdue = p.DueDate != null && p.DueDate.Value < DateTime.UtcNow && (p.TotalAmount - (p.AmountPaid ?? 0)) > 0,
                     Items = p.Items.Select(i => new PurchaseItemDto
                     {
                         Id = i.Id,
@@ -152,6 +156,8 @@ namespace HexaBill.Api.Modules.Purchases
 
             if (purchase == null) return null;
 
+            var balance = purchase.TotalAmount - (purchase.AmountPaid ?? 0);
+            var paid = purchase.AmountPaid ?? 0;
             return new PurchaseDto
             {
                 Id = purchase.Id,
@@ -164,6 +170,10 @@ namespace HexaBill.Api.Modules.Purchases
                 TotalAmount = purchase.TotalAmount,
                 PaymentType = purchase.PaymentType,
                 AmountPaid = purchase.AmountPaid,
+                Balance = balance,
+                PaymentStatus = paid >= purchase.TotalAmount ? "Paid" : (paid > 0 ? "Partial" : "Unpaid"),
+                DueDate = purchase.DueDate,
+                IsOverdue = purchase.DueDate.HasValue && purchase.DueDate.Value < DateTime.UtcNow && balance > 0,
                 Items = purchase.Items.Select(i => new PurchaseItemDto
                 {
                     Id = i.Id,
@@ -371,6 +381,9 @@ namespace HexaBill.Api.Modules.Purchases
                     amountPaid = totalAmount;
                 if (amountPaid > totalAmount)
                     throw new InvalidOperationException($"Amount paid ({amountPaid:N2}) cannot exceed total amount ({totalAmount:N2}).");
+                // Due date for credit: default 30 days from purchase date (overdue when Today > DueDate && Balance > 0)
+                var dueDate = (paymentType.Equals("Credit", StringComparison.OrdinalIgnoreCase) || paymentType.Equals("Partial", StringComparison.OrdinalIgnoreCase))
+                    ? purchaseDate.AddDays(30) : (DateTime?)null;
                 var purchase = new Purchase
                 {
                     OwnerId = tenantId,
@@ -385,6 +398,7 @@ namespace HexaBill.Api.Modules.Purchases
                     TotalAmount = totalAmount, // Grand total (for backward compatibility)
                     PaymentType = paymentType,
                     AmountPaid = amountPaid > 0 ? amountPaid : null,
+                    DueDate = dueDate,
                     CreatedBy = userId,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -622,6 +636,8 @@ namespace HexaBill.Api.Modules.Purchases
                 purchase.TotalAmount = totalAmount;
                 purchase.PaymentType = paymentTypeUpdate;
                 purchase.AmountPaid = updateAmountPaid > 0 ? request.AmountPaid : null;
+                purchase.DueDate = (paymentTypeUpdate != null && (paymentTypeUpdate.Equals("Credit", StringComparison.OrdinalIgnoreCase) || paymentTypeUpdate.Equals("Partial", StringComparison.OrdinalIgnoreCase)))
+                    ? purchase.PurchaseDate.AddDays(30) : (DateTime?)null;
 
                 // Create audit log for update
                 var auditLog = new AuditLog
@@ -876,6 +892,8 @@ namespace HexaBill.Api.Modules.Purchases
         public decimal? AmountPaid { get; set; }
         public decimal Balance { get; set; } // TotalAmount - AmountPaid
         public string PaymentStatus { get; set; } = "Unpaid"; // Paid, Partial, Unpaid
+        public DateTime? DueDate { get; set; }
+        public bool IsOverdue { get; set; }
 
         public List<PurchaseItemDto> Items { get; set; } = new();
     }

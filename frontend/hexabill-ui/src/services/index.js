@@ -116,6 +116,11 @@ export const productsAPI = {
     const response = await api.post('/products/reset-all-stock')
     return response.data
   },
+  /** Recompute product stock from inventory movements (repair drift). */
+  recomputeStock: async () => {
+    const response = await api.post('/products/recompute-stock')
+    return response.data
+  },
 
   bulkUpdatePrices: async (request) => {
     const response = await api.post('/products/bulk-update-prices', request)
@@ -1161,6 +1166,14 @@ export const stockAdjustmentsAPI = {
 
 // Suppliers API
 export const suppliersAPI = {
+  search: async (q, limit = 20) => {
+    const response = await api.get('/suppliers/search', { params: { q: q || undefined, limit } })
+    return response.data
+  },
+  create: async (payload) => {
+    const response = await api.post('/suppliers', payload)
+    return response.data
+  },
   getSupplierBalance: async (supplierName) => {
     const response = await api.get(`/suppliers/balance/${encodeURIComponent(supplierName)}`)
     return response.data

@@ -615,6 +615,35 @@ namespace HexaBill.Api.Modules.Inventory
                 });
             }
         }
+
+        /// <summary>Recompute product stock from InventoryTransactions (SUM of ChangeQty). Use to repair stock drift.</summary>
+        [HttpPost("recompute-stock")]
+        [Authorize(Roles = "Admin,Owner")]
+        public async Task<ActionResult<ApiResponse<object>>> RecomputeStockFromMovements()
+        {
+            try
+            {
+                var tenantId = CurrentTenantId;
+                if (tenantId <= 0)
+                    return BadRequest(new ApiResponse<object> { Success = false, Message = "Invalid tenant context." });
+                var count = await _productService.RecomputeStockFromMovementsAsync(tenantId);
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Message = $"Stock recomputed from inventory movements for {count} products.",
+                    Data = new { ProductsUpdated = count }
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Recompute failed",
+                    Errors = new List<string> { ex.Message }
+                });
+            }
+        }
     }
 
     public class StockAdjustmentRequest

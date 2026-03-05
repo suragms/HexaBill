@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Plus, Edit, Trash2, Eye, Save, Search, X, Filter, Calendar, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react'
 import { purchasesAPI, productsAPI, settingsAPI, suppliersAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
@@ -51,6 +51,19 @@ const PurchasesPage = () => {
   })
   const [payModal, setPayModal] = useState({ isOpen: false, purchase: null, amount: '', paymentMethod: 'Cash' })
   const [ledgerModal, setLedgerModal] = useState({ isOpen: false, supplierName: null, transactions: [], loading: false })
+  // Supplier searchable dropdown (purchase form)
+  const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
+  const [supplierSearchResults, setSupplierSearchResults] = useState([])
+  const [supplierSearchLoading, setSupplierSearchLoading] = useState(false)
+  const supplierDropdownRef = useRef(null)
+  const [createSupplierModal, setCreateSupplierModal] = useState({
+    open: false,
+    name: '',
+    phone: '',
+    address: '',
+    openingBalance: ''
+  })
+  const [supplierBalancePreview, setSupplierBalancePreview] = useState(null)
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-GB')
@@ -69,6 +82,42 @@ const PurchasesPage = () => {
     }
   }, [showProductSearch])
 
+  // Debounced supplier search when form is open
+  useEffect(() => {
+    if (!showForm) return
+    const q = (formData.supplierName || '').trim()
+    if (!q) {
+      setSupplierSearchResults([])
+      setSupplierDropdownOpen(false)
+      return
+    }
+    const t = setTimeout(async () => {
+      setSupplierSearchLoading(true)
+      try {
+        const res = await suppliersAPI.search(q, 15)
+        const list = res?.data ?? res ?? []
+        setSupplierSearchResults(Array.isArray(list) ? list : [])
+        setSupplierDropdownOpen(true)
+      } catch (_) {
+        setSupplierSearchResults([])
+      } finally {
+        setSupplierSearchLoading(false)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [showForm, formData.supplierName])
+
+  // Click outside to close supplier dropdown
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (supplierDropdownRef.current && !supplierDropdownRef.current.contains(e.target)) {
+        setSupplierDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   // Fetch VAT from company settings (no hardcoded 5% — TODO #5)
   useEffect(() => {
     const fetchVat = async () => {
@@ -82,6 +131,22 @@ const PurchasesPage = () => {
     }
     fetchVat()
   }, [])
+
+  // Supplier balance preview when supplier name is set (purchase form)
+  useEffect(() => {
+    const name = (formData.supplierName || '').trim()
+    if (!name || !showForm) {
+      setSupplierBalancePreview(null)
+      return
+    }
+    let cancelled = false
+    suppliersAPI.getSupplierBalance(name).then((res) => {
+      if (cancelled) return
+      const data = res?.data ?? res
+      setSupplierBalancePreview(data ? { netPayable: data.netPayable ?? data.NetPayable ?? 0, overdueAmount: data.overdueAmount ?? data.OverdueAmount ?? 0 } : null)
+    }).catch(() => { if (!cancelled) setSupplierBalancePreview(null) })
+    return () => { cancelled = true }
+  }, [formData.supplierName, showForm])
 
   const loadPurchases = async () => {
     try {
@@ -553,6 +618,31 @@ const PurchasesPage = () => {
 
   const handleCloseLedgerModal = () => {
     setLedgerModal({ isOpen: false, supplierName: null, transactions: [], loading: false })
+  }
+
+  const handleCreateSupplier = async () => {
+    const name = (createSupplierModal.name || '').trim()
+    if (!name) {
+      toast.error('Supplier name is required')
+      return
+    }
+    try {
+      const res = await suppliersAPI.create({
+        supplierName: name,
+        phone: createSupplierModal.phone || undefined,
+        address: createSupplierModal.address || undefined,
+        openingBalance: createSupplierModal.openingBalance ? parseFloat(createSupplierModal.openingBalance) : 0
+      })
+      const data = res?.data ?? res
+      if (data?.name) {
+        setFormData(prev => ({ ...prev, supplierName: data.name }))
+        toast.success('Supplier created')
+      }
+      setCreateSupplierModal({ open: false, name: '', phone: '', address: '', openingBalance: '' })
+    } catch (err) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to create supplier'
+      toast.error(msg)
+    }
   }
 
   // TALLY ERP PURCHASE VOUCHER STYLE
@@ -1040,6 +1130,7 @@ const PurchasesPage = () => {
                   <option value="Paid">Paid</option>
                   <option value="Partial">Partial</option>
                   <option value="Unpaid">Unpaid</option>
+                  <option value="Overdue">Overdue</option>
                 </select>
               </div>
 
@@ -1080,15 +1171,55 @@ const PurchasesPage = () => {
 
             <form onSubmit={handleSubmit}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4 mb-4 sm:mb-6">
-                <div>
+                <div className="relative" ref={supplierDropdownRef}>
                   <label className="block text-sm font-medium text-primary-700 mb-1">Supplier Name *</label>
                   <input
                     type="text"
                     required
+                    autoComplete="off"
                     className="w-full px-3 py-2 border-2 border-lime-300 rounded text-sm"
                     value={formData.supplierName}
                     onChange={(e) => setFormData({ ...formData, supplierName: e.target.value })}
+                    onFocus={() => (formData.supplierName?.trim() && supplierSearchResults.length > 0) && setSupplierDropdownOpen(true)}
                   />
+                  {supplierSearchLoading && (
+                    <span className="absolute right-3 top-9 text-xs text-primary-500">Searching...</span>
+                  )}
+                  {supplierDropdownOpen && (supplierSearchResults.length > 0 || (formData.supplierName || '').trim()) && (
+                    <div className="absolute z-50 mt-1 w-full bg-white border-2 border-lime-300 rounded shadow-lg max-h-48 overflow-auto">
+                      {supplierSearchResults.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-lime-50 text-sm border-b border-lime-100 last:border-0"
+                          onClick={() => {
+                            setFormData(prev => ({ ...prev, supplierName: s.name }))
+                            setSupplierDropdownOpen(false)
+                          }}
+                        >
+                          <span className="font-medium text-primary-800">{s.name}</span>
+                          {s.phone && <span className="text-primary-500 ml-2 text-xs">{s.phone}</span>}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-lime-100 text-sm font-medium text-primary-700 border-t-2 border-lime-200 flex items-center gap-2"
+                        onClick={() => {
+                          setCreateSupplierModal({
+                            open: true,
+                            name: (formData.supplierName || '').trim(),
+                            phone: '',
+                            address: '',
+                            openingBalance: ''
+                          })
+                          setSupplierDropdownOpen(false)
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                        Create new supplier
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-primary-700 mb-1">Invoice No *</label>
@@ -1155,6 +1286,25 @@ const PurchasesPage = () => {
                   </div>
                 )}
               </div>
+
+              {/* Supplier balance preview */}
+              {supplierBalancePreview != null && (formData.supplierName || '').trim() && (
+                <div className="mb-4 p-3 bg-lime-50 border border-lime-300 rounded text-sm">
+                  <p className="font-medium text-primary-800">Supplier: {(formData.supplierName || '').trim()}</p>
+                  <p className="text-primary-700">Current due: AED {Number(supplierBalancePreview.netPayable || 0).toFixed(2)}</p>
+                  {supplierBalancePreview.overdueAmount > 0 && (
+                    <p className="text-amber-700 font-medium">Overdue: AED {Number(supplierBalancePreview.overdueAmount).toFixed(2)}</p>
+                  )}
+                  {(() => {
+                    const total = calculateTotal() * (1 + vatPercent / 100)
+                    if (total > 0) {
+                      const newDue = (supplierBalancePreview.netPayable || 0) + total
+                      return <p className="text-primary-800 font-medium mt-1">After this purchase: AED {newDue.toFixed(2)}</p>
+                    }
+                    return null
+                  })()}
+                </div>
+              )}
 
               {/* Product Search */}
               <div className="mb-4">
@@ -1519,6 +1669,9 @@ const PurchasesPage = () => {
                             }`}>
                               {purchase.paymentStatus || 'Unpaid'}
                             </span>
+                            {purchase.isOverdue && (
+                              <span className="ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Overdue</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-center">{purchase.items?.length || 0}</td>
                           <td className="px-3 py-2">
@@ -1605,6 +1758,7 @@ const PurchasesPage = () => {
                       <div className="flex items-center justify-between text-xs text-primary-500 mt-2">
                         <span>{formatDate(purchase.purchaseDate)}</span>
                         <span className={`px-1.5 py-0.5 rounded font-medium ${purchase.paymentStatus === 'Paid' ? 'bg-green-100 text-green-800' : purchase.paymentStatus === 'Partial' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`}>{purchase.paymentStatus || 'Unpaid'}</span>
+                        {purchase.isOverdue && <span className="ml-1 px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-800">Overdue</span>}
                       </div>
                       <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-100 text-xs">
                         <div>
@@ -1788,6 +1942,62 @@ const PurchasesPage = () => {
             </div>
             <div className="p-4 border-t border-lime-300">
               <button type="button" onClick={handleCloseLedgerModal} className="px-3 py-2 bg-primary-600 text-white rounded text-sm font-medium">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Supplier Modal */}
+      {createSupplierModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setCreateSupplierModal(prev => ({ ...prev, open: false }))}>
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-primary-800 mb-4">Create New Supplier</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-primary-700 mb-1">Supplier Name *</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border-2 border-lime-300 rounded text-sm"
+                  value={createSupplierModal.name}
+                  onChange={e => setCreateSupplierModal(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g. JAPI ICE CREAM"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-primary-700 mb-1">Phone</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border-2 border-lime-300 rounded text-sm"
+                  value={createSupplierModal.phone}
+                  onChange={e => setCreateSupplierModal(prev => ({ ...prev, phone: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-primary-700 mb-1">Address</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border-2 border-lime-300 rounded text-sm"
+                  value={createSupplierModal.address}
+                  onChange={e => setCreateSupplierModal(prev => ({ ...prev, address: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-primary-700 mb-1">Opening Balance (AED)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="w-full px-3 py-2 border-2 border-lime-300 rounded text-sm"
+                  value={createSupplierModal.openingBalance}
+                  onChange={e => setCreateSupplierModal(prev => ({ ...prev, openingBalance: e.target.value }))}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" onClick={() => setCreateSupplierModal(prev => ({ ...prev, open: false }))} className="px-3 py-2 border border-gray-300 rounded text-sm">Cancel</button>
+              <button type="button" onClick={handleCreateSupplier} className="px-3 py-2 bg-primary-600 text-white rounded text-sm font-medium">Create Supplier</button>
             </div>
           </div>
         </div>

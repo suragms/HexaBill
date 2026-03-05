@@ -9,6 +9,7 @@ import Dashboard from './pages/company/DashboardTally'
 import ProductsPage from './pages/company/ProductsPage'
 import PriceList from './pages/company/PriceList'
 import PurchasesPage from './pages/company/PurchasesPage'
+import SuppliersPage from './pages/company/SuppliersPage'
 import PosPage from './pages/company/PosPage'
 import CustomerLedgerPage from './pages/company/CustomerLedgerPage'
 import ExpensesPage from './pages/company/ExpensesPage'
@@ -143,6 +144,7 @@ function App() {
     if (p === '/settings') return 'settings'
     if (p === '/backup') return 'backup'
     if (p === '/purchases') return 'purchases'
+    if (p === '/suppliers') return 'suppliers'
     return null
   }
   const resolvedPageId = getPageIdForPath(path)
@@ -187,6 +189,7 @@ function App() {
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/pricelist" element={<PriceList />} />
               <Route path="/purchases" element={<PurchasesPage />} />
+              <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/pos" element={<PosPage />} />
               <Route path="/ledger" element={<CustomerLedgerPage />} />
               <Route path="/expenses" element={<ExpensesPage />} />

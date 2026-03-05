@@ -121,6 +121,7 @@ const Layout = () => {
     ...(isAdminOrOwner(user) ? [{ name: 'Users', href: '/users', icon: Shield }] : []),
     { name: 'Products', href: '/products', icon: Package },
     ...(isAdminOrOwner(user) ? [{ name: 'Purchases', href: '/purchases', icon: Truck }] : []),
+    ...(isAdminOrOwner(user) ? [{ name: 'Suppliers', href: '/suppliers', icon: Building2 }] : []),
     { name: 'POS', href: '/pos', icon: ShoppingCart },
     { name: 'Customer Ledger', href: '/ledger', icon: BookOpen },
     { name: 'Sales Ledger', href: '/sales-ledger', icon: FileText },

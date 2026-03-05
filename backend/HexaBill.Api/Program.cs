@@ -396,6 +396,11 @@ using (var scope = app.Services.CreateScope())
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Branches"" ADD COLUMN IF NOT EXISTS ""Location"" character varying(200) NULL;");
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Branches"" ADD COLUMN IF NOT EXISTS ""UpdatedAt"" timestamp with time zone NULL;");
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""ErrorLogs"" ADD COLUMN IF NOT EXISTS ""ResolvedAt"" timestamp with time zone NULL;");
+            // Purchases: AmountPaid, PaymentType, SupplierId, DueDate (fixes 42703 column p.AmountPaid does not exist)
+            ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""AmountPaid"" numeric(18,2) NULL;");
+            ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""PaymentType"" character varying(20) NULL;");
+            ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""SupplierId"" integer NULL;");
+            ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""DueDate"" timestamp with time zone NULL;");
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""SaleReturns"" ADD COLUMN IF NOT EXISTS ""BranchId"" integer NULL;");
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""SaleReturns"" ADD COLUMN IF NOT EXISTS ""RouteId"" integer NULL;");
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""SaleReturns"" ADD COLUMN IF NOT EXISTS ""ReturnCategory"" character varying(20) NULL;");
@@ -1119,6 +1124,7 @@ _ = Task.Run(async () =>
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""AmountPaid"" numeric(18,2) NULL;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""PaymentType"" character varying(20) NULL;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""SupplierId"" integer NULL;");
+                    await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""DueDate"" timestamp with time zone NULL;");
                     // Supplier tables (create if not exist) so /api/purchases and /api/suppliers work
                     await context.Database.ExecuteSqlRawAsync(@"
                         CREATE TABLE IF NOT EXISTS ""SupplierCategories"" (

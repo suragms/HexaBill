@@ -126,6 +126,43 @@ namespace HexaBill.Api.Modules.Purchases
             }
         }
 
+        [HttpPost]
+        public async Task<ActionResult<ApiResponse<SupplierSearchDto>>> CreateSupplier([FromBody] CreateSupplierRequest request)
+        {
+            try
+            {
+                if (request == null || string.IsNullOrWhiteSpace(request.SupplierName))
+                    return BadRequest(new ApiResponse<SupplierSearchDto> { Success = false, Message = "Supplier name is required." });
+                var tenantId = CurrentTenantId;
+                var result = await _supplierService.CreateSupplierAsync(
+                    tenantId,
+                    request.SupplierName.Trim(),
+                    request.Phone?.Trim(),
+                    request.Address?.Trim(),
+                    request.CategoryId,
+                    request.OpeningBalance ?? 0);
+                return Ok(new ApiResponse<SupplierSearchDto>
+                {
+                    Success = true,
+                    Message = "Supplier created successfully",
+                    Data = result
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse<SupplierSearchDto> { Success = false, Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ApiResponse<SupplierSearchDto>
+                {
+                    Success = false,
+                    Message = "An error occurred",
+                    Errors = new List<string> { ex.Message }
+                });
+            }
+        }
+
         [HttpPost("payments")]
         public async Task<ActionResult<ApiResponse<SupplierPaymentDto>>> RecordPayment([FromBody] RecordSupplierPaymentRequest request)
         {
@@ -175,6 +212,15 @@ namespace HexaBill.Api.Modules.Purchases
         public string? PaymentMethod { get; set; }
         public string? Reference { get; set; }
         public int? PurchaseId { get; set; }
+    }
+
+    public class CreateSupplierRequest
+    {
+        public string SupplierName { get; set; } = string.Empty;
+        public string? Phone { get; set; }
+        public string? Address { get; set; }
+        public int? CategoryId { get; set; }
+        public decimal? OpeningBalance { get; set; }
     }
 }
 

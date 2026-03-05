@@ -20,6 +20,8 @@ namespace HexaBill.Api.Modules.Purchases
         Task<List<SupplierSummaryDto>> GetAllSuppliersSummaryAsync(int tenantId);
         /// <summary>Record a standalone payment to a supplier. Optionally link to a purchase and update its AmountPaid.</summary>
         Task<SupplierPaymentDto> RecordPaymentAsync(int tenantId, string supplierName, decimal amount, string? paymentMethod, string? reference, int? purchaseId = null);
+        /// <summary>Create a new supplier. Supplier name must be unique per tenant.</summary>
+        Task<SupplierSearchDto> CreateSupplierAsync(int tenantId, string name, string? phone, string? address, int? categoryId, decimal openingBalance = 0);
     }
 
     public static class SupplierNormalize
@@ -98,12 +100,22 @@ namespace HexaBill.Api.Modules.Purchases
             // Net payable = Purchases - Returns - Payments
             var netPayable = totalPurchases - totalPurchaseReturns - totalPayments;
 
+            // Overdue = sum of (TotalAmount - AmountPaid) for purchases where DueDate < today and balance > 0
+            var today = DateTime.UtcNow.Date;
+            var overdueAmount = await _context.Purchases
+                .Where(p => p.TenantId == tenantId && p.SupplierName == supplierName
+                    && p.DueDate.HasValue && p.DueDate.Value < today
+                    && (p.TotalAmount - (p.AmountPaid ?? 0)) > 0)
+                .SumAsync(p => p.TotalAmount - (p.AmountPaid ?? 0));
+
             return new SupplierBalanceDto
             {
                 SupplierName = supplierName,
                 TotalPurchases = totalPurchases,
                 TotalReturns = totalPurchaseReturns,
+                TotalPayments = totalPayments,
                 NetPayable = netPayable,
+                OverdueAmount = overdueAmount,
                 LastPurchaseDate = await _context.Purchases
                     .Where(p => p.TenantId == tenantId && p.SupplierName == supplierName)
                     .OrderByDescending(p => p.PurchaseDate)
@@ -207,22 +219,34 @@ namespace HexaBill.Api.Modules.Purchases
 
         public async Task<List<SupplierSummaryDto>> GetAllSuppliersSummaryAsync(int tenantId)
         {
-            var supplierNames = await _context.Purchases
+            // Include all suppliers from Suppliers table AND any name that appears in Purchases (legacy)
+            var fromTable = await _context.Suppliers
+                .Where(s => s.TenantId == tenantId && s.IsActive)
+                .Select(s => new { s.Name, s.Phone })
+                .ToListAsync();
+            var fromPurchases = await _context.Purchases
                 .Where(p => p.TenantId == tenantId)
                 .Select(p => p.SupplierName)
                 .Distinct()
                 .ToListAsync();
+            var allNames = fromTable.Select(x => x.Name)
+                .Union(fromPurchases)
+                .Distinct()
+                .ToList();
 
             var summaries = new List<SupplierSummaryDto>();
-
-            foreach (var supplierName in supplierNames)
+            foreach (var supplierName in allNames)
             {
                 var balance = await GetSupplierBalanceAsync(tenantId, supplierName);
+                var phone = fromTable.FirstOrDefault(x => string.Equals(x.Name, supplierName, StringComparison.OrdinalIgnoreCase))?.Phone;
                 summaries.Add(new SupplierSummaryDto
                 {
                     SupplierName = supplierName,
+                    Phone = phone,
                     NetPayable = balance.NetPayable,
                     TotalPurchases = balance.TotalPurchases,
+                    TotalPayments = balance.TotalPayments,
+                    OverdueAmount = balance.OverdueAmount,
                     LastPurchaseDate = balance.LastPurchaseDate
                 });
             }
@@ -276,6 +300,32 @@ namespace HexaBill.Api.Modules.Purchases
                 PurchaseId = payment.PurchaseId
             };
         }
+
+        public async Task<SupplierSearchDto> CreateSupplierAsync(int tenantId, string name, string? phone, string? address, int? categoryId, decimal openingBalance = 0)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Supplier name is required.", nameof(name));
+            var normalized = SupplierNormalize.Normalize(name.Trim());
+            var existing = await _context.Suppliers
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.NormalizedName == normalized);
+            if (existing != null)
+                throw new InvalidOperationException($"A supplier with name '{name.Trim()}' already exists.");
+            var supplier = new Supplier
+            {
+                TenantId = tenantId,
+                Name = name.Trim(),
+                NormalizedName = normalized,
+                Phone = string.IsNullOrWhiteSpace(phone) ? null : phone.Trim(),
+                Address = string.IsNullOrWhiteSpace(address) ? null : address.Trim(),
+                CategoryId = categoryId,
+                OpeningBalance = openingBalance,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Suppliers.Add(supplier);
+            await _context.SaveChangesAsync();
+            return new SupplierSearchDto { Id = supplier.Id, Name = supplier.Name, Phone = supplier.Phone };
+        }
     }
 
     public class SupplierPaymentDto
@@ -294,7 +344,9 @@ namespace HexaBill.Api.Modules.Purchases
         public string SupplierName { get; set; } = string.Empty;
         public decimal TotalPurchases { get; set; }
         public decimal TotalReturns { get; set; }
+        public decimal TotalPayments { get; set; }
         public decimal NetPayable { get; set; }
+        public decimal OverdueAmount { get; set; }
         public DateTime? LastPurchaseDate { get; set; }
     }
 
@@ -311,8 +363,11 @@ namespace HexaBill.Api.Modules.Purchases
     public class SupplierSummaryDto
     {
         public string SupplierName { get; set; } = string.Empty;
+        public string? Phone { get; set; }
         public decimal NetPayable { get; set; }
         public decimal TotalPurchases { get; set; }
+        public decimal TotalPayments { get; set; }
+        public decimal OverdueAmount { get; set; }
         public DateTime? LastPurchaseDate { get; set; }
     }
 

@@ -44,7 +44,9 @@ namespace HexaBill.Api.Models
         public string? PaymentType { get; set; } // Cash, Credit, Partial
         /// <summary>Amount paid at purchase (when PaymentType is Partial or Cash).</summary>
         public decimal? AmountPaid { get; set; }
-        
+        /// <summary>Due date for credit (PurchaseDate + credit terms). Overdue when DueDate &lt; Today and Balance &gt; 0.</summary>
+        public DateTime? DueDate { get; set; }
+
         public string? InvoiceFilePath { get; set; }
         public string? InvoiceFileName { get; set; }
         public int CreatedBy { get; set; }
