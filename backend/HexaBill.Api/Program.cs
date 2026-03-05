@@ -1115,8 +1115,65 @@ _ = Task.Run(async () =>
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""SaleReturnItems"" ADD COLUMN IF NOT EXISTS ""StockEffect"" boolean NULL;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Sales"" ADD COLUMN IF NOT EXISTS ""BranchId"" integer NULL;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Sales"" ADD COLUMN IF NOT EXISTS ""RouteId"" integer NULL;");
+                    // Purchases: AmountPaid, PaymentType, SupplierId (fixes 500 on /api/purchases when columns missing)
+                    await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""AmountPaid"" numeric(18,2) NULL;");
+                    await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""PaymentType"" character varying(20) NULL;");
+                    await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""SupplierId"" integer NULL;");
+                    // Supplier tables (create if not exist) so /api/purchases and /api/suppliers work
+                    await context.Database.ExecuteSqlRawAsync(@"
+                        CREATE TABLE IF NOT EXISTS ""SupplierCategories"" (
+                            ""Id"" serial PRIMARY KEY,
+                            ""TenantId"" integer NULL,
+                            ""Name"" character varying(100) NOT NULL,
+                            ""IsActive"" boolean NOT NULL DEFAULT true,
+                            ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
+                        );");
+                    await context.Database.ExecuteSqlRawAsync(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_SupplierCategories_TenantId_Name"" ON ""SupplierCategories"" (""TenantId"", ""Name"");");
+                    await context.Database.ExecuteSqlRawAsync(@"
+                        CREATE TABLE IF NOT EXISTS ""Suppliers"" (
+                            ""Id"" serial PRIMARY KEY,
+                            ""TenantId"" integer NULL,
+                            ""Name"" character varying(200) NOT NULL,
+                            ""NormalizedName"" character varying(200) NOT NULL,
+                            ""Phone"" character varying(50) NULL,
+                            ""Address"" character varying(500) NULL,
+                            ""CategoryId"" integer NULL,
+                            ""OpeningBalance"" numeric(18,2) NOT NULL DEFAULT 0,
+                            ""IsActive"" boolean NOT NULL DEFAULT true,
+                            ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+                            CONSTRAINT ""FK_Suppliers_SupplierCategories_CategoryId"" FOREIGN KEY (""CategoryId"") REFERENCES ""SupplierCategories"" (""Id"") ON DELETE SET NULL
+                        );");
+                    await context.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_Suppliers_CategoryId"" ON ""Suppliers"" (""CategoryId"");");
+                    await context.Database.ExecuteSqlRawAsync(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Suppliers_TenantId_NormalizedName"" ON ""Suppliers"" (""TenantId"", ""NormalizedName"");");
+                    await context.Database.ExecuteSqlRawAsync(@"
+                        CREATE TABLE IF NOT EXISTS ""SupplierPayments"" (
+                            ""Id"" serial PRIMARY KEY,
+                            ""TenantId"" integer NULL,
+                            ""SupplierId"" integer NOT NULL,
+                            ""Amount"" numeric(18,2) NOT NULL,
+                            ""PaymentDate"" timestamp with time zone NOT NULL,
+                            ""Reference"" character varying(200) NULL,
+                            ""PurchaseId"" integer NULL,
+                            ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
+                            CONSTRAINT ""FK_SupplierPayments_Suppliers_SupplierId"" FOREIGN KEY (""SupplierId"") REFERENCES ""Suppliers"" (""Id"") ON DELETE RESTRICT,
+                            CONSTRAINT ""FK_SupplierPayments_Purchases_PurchaseId"" FOREIGN KEY (""PurchaseId"") REFERENCES ""Purchases"" (""Id"") ON DELETE SET NULL
+                        );");
+                    await context.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_SupplierPayments_SupplierId"" ON ""SupplierPayments"" (""SupplierId"");");
+                    await context.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_SupplierPayments_PurchaseId"" ON ""SupplierPayments"" (""PurchaseId"");");
+                    await context.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_SupplierPayments_PaymentDate"" ON ""SupplierPayments"" (""PaymentDate"");");
+                    await context.Database.ExecuteSqlRawAsync(@"
+                        DO $$ BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.table_constraints
+                                WHERE constraint_schema = 'public' AND constraint_name = 'FK_Purchases_Suppliers_SupplierId' AND table_name = 'Purchases'
+                            ) THEN
+                                ALTER TABLE ""Purchases"" ADD CONSTRAINT ""FK_Purchases_Suppliers_SupplierId""
+                                    FOREIGN KEY (""SupplierId"") REFERENCES ""Suppliers"" (""Id"") ON DELETE SET NULL;
+                            END IF;
+                        END $$;");
+                    await context.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_Purchases_SupplierId"" ON ""Purchases"" (""SupplierId"");");
                     HexaBill.Api.Shared.Services.SalesSchemaService.ClearColumnCheckCacheStatic();
-                    initLogger.LogInformation("PostgreSQL: Safety check for critical columns completed");
+                    initLogger.LogInformation("PostgreSQL: Safety check for critical columns and Purchases/Suppliers schema completed");
                 }
                 catch (Exception ex)
                 {
