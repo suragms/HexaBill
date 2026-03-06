@@ -358,7 +358,29 @@ namespace HexaBill.Api.Modules.Purchases
             var supplier = await _context.Suppliers
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.NormalizedName == normalized);
             if (supplier == null)
-                return null;
+            {
+                // Some tenants have purchases/payments referencing SupplierName without a Suppliers table row.
+                // In that case, allow ledger/details pages to load in "view-only" mode instead of returning 404.
+                var referencedByPurchases = await _context.Purchases
+                    .AnyAsync(p => p.TenantId == tenantId && p.SupplierName.ToLower() == normalized);
+                var referencedByPayments = await _context.SupplierPayments
+                    .AnyAsync(sp => sp.TenantId == tenantId && sp.SupplierName.ToLower() == normalized);
+
+                if (!referencedByPurchases && !referencedByPayments)
+                    return null;
+
+                return new SupplierDto
+                {
+                    Id = 0,
+                    Name = name,
+                    Phone = null,
+                    Email = null,
+                    Address = null,
+                    CreditLimit = 0,
+                    PaymentTerms = null,
+                    IsActive = false
+                };
+            }
             return new SupplierDto
             {
                 Id = supplier.Id,
