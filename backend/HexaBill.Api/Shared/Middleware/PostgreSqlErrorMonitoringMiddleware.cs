@@ -99,21 +99,21 @@ namespace HexaBill.Api.Shared.Middleware
                 }
             }
 
-            // Entity Framework specific errors - log full inner chain for DbUpdateException
-            if (exception is DbUpdateException dbEx)
+            // Log full inner chain for any exception (so INVALID_OPERATION shows real cause e.g. 42703 / missing column)
+            var inner = exception?.InnerException;
+            var depth = 0;
+            if (inner != null)
             {
-                errorDetails.AppendLine("\n📊 DATABASE UPDATE ERROR:");
-                var firstEntry = dbEx.Entries?.FirstOrDefault();
-                errorDetails.AppendLine($"Failed Entity: {firstEntry?.Entity?.GetType().Name ?? "Unknown"}");
-                errorDetails.AppendLine($"State: {firstEntry?.State}");
-                var inner = dbEx.InnerException;
-                var depth = 0;
+                errorDetails.AppendLine("\n📊 INNER EXCEPTION CHAIN:");
                 while (inner != null && depth < 5)
                 {
                     errorDetails.AppendLine($"Inner[{depth}]: {inner.GetType().Name}: {inner.Message}");
                     if (inner is Npgsql.PostgresException pgEx)
-                    {
                         errorDetails.AppendLine($"  SQL State: {pgEx.SqlState}, Detail: {pgEx.Detail}");
+                    if (exception is DbUpdateException dbEx && depth == 0)
+                    {
+                        var firstEntry = dbEx.Entries?.FirstOrDefault();
+                        errorDetails.AppendLine($"  Failed Entity: {firstEntry?.Entity?.GetType().Name ?? "Unknown"}, State: {firstEntry?.State}");
                     }
                     inner = inner.InnerException;
                     depth++;
@@ -177,7 +177,11 @@ namespace HexaBill.Api.Shared.Middleware
         {
             if (IsDateTimeKindError(exception))
                 return "DATETIME_KIND_UNSPECIFIED";
-            
+
+            // Unwrap any exception type: if 42703 (undefined column) is in the chain, classify as missing column (production schema behind).
+            if (HasInnerPostgresState(exception, "42703"))
+                return "EF_MISSING_COLUMN_42703";
+
             if (exception is NpgsqlException npgEx)
             {
                 return npgEx.SqlState switch
@@ -192,17 +196,12 @@ namespace HexaBill.Api.Shared.Middleware
                 };
             }
 
-            if (exception is DbUpdateException dbUpEx)
-            {
-                // Unwrap to detect missing column (42703) for clearer Render logs
-                if (HasInnerPostgresState(dbUpEx, "42703"))
-                    return "EF_MISSING_COLUMN_42703";
+            if (exception is DbUpdateException)
                 return "EF_CORE_UPDATE_ERROR";
-            }
 
             if (exception is InvalidOperationException)
                 return "INVALID_OPERATION";
-            
+
             if (exception is ArgumentException)
                 return "INVALID_ARGUMENT";
 
@@ -227,7 +226,7 @@ namespace HexaBill.Api.Shared.Middleware
         /// <summary>True if exception indicates missing column/table (e.g. ErrorLogs.ResolvedAt). Skip ErrorLog persist to avoid second failure.</summary>
         private static bool IsMissingColumnOrErrorLogsException(Exception exception)
         {
-            if (exception is DbUpdateException && HasInnerPostgresState(exception, "42703"))
+            if (HasInnerPostgresState(exception, "42703"))
                 return true;
             var msg = exception?.Message ?? "";
             return msg.Contains("errorMissingColumn", StringComparison.OrdinalIgnoreCase)
