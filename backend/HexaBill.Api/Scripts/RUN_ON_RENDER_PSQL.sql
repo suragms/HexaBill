@@ -116,6 +116,11 @@ ALTER TABLE "Suppliers" ADD COLUMN IF NOT EXISTS "UpdatedAt" timestamp with time
 ALTER TABLE "Suppliers" ADD COLUMN IF NOT EXISTS "Email" character varying(200) NULL;
 ALTER TABLE "Suppliers" ADD COLUMN IF NOT EXISTS "CreditLimit" numeric(18,2) NOT NULL DEFAULT 0;
 ALTER TABLE "Suppliers" ADD COLUMN IF NOT EXISTS "PaymentTerms" character varying(100) NULL;
+-- NormalizedName required for unique index and Create Supplier insert
+ALTER TABLE "Suppliers" ADD COLUMN IF NOT EXISTS "NormalizedName" character varying(200) NULL;
+UPDATE "Suppliers" SET "NormalizedName" = LOWER("Name") WHERE "NormalizedName" IS NULL;
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='Suppliers' AND column_name='NormalizedName') THEN ALTER TABLE "Suppliers" ALTER COLUMN "NormalizedName" SET NOT NULL; END IF; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS "IX_Suppliers_TenantId_NormalizedName" ON "Suppliers" ("TenantId", "NormalizedName");
 
 -- CustomerVisits (fixes relation "CustomerVisits" does not exist)
 CREATE TABLE IF NOT EXISTS "CustomerVisits" (

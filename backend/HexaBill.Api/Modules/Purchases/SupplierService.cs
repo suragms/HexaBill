@@ -290,6 +290,7 @@ namespace HexaBill.Api.Modules.Purchases
             {
                 TenantId = tenantId,
                 Name = name,
+                NormalizedName = normalized,
                 Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone!.Trim(),
                 Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email!.Trim(),
                 Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address!.Trim(),

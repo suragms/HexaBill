@@ -5,6 +5,7 @@ Date: 2025
 */
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using HexaBill.Api.Modules.Purchases;
 using HexaBill.Api.Models;
 using HexaBill.Api.Shared.Extensions;
@@ -156,13 +157,21 @@ namespace HexaBill.Api.Modules.Purchases
                     Errors = new List<string> { ex.Message }
                 });
             }
+            catch (DbUpdateException ex)
+            {
+                var inner = ex.InnerException?.Message ?? ex.Message;
+                if (inner.Contains("duplicate") || inner.Contains("unique") || inner.Contains("IX_Suppliers"))
+                    return BadRequest(new ApiResponse<SupplierDto> { Success = false, Message = "A supplier with this name already exists.", Errors = new List<string> { inner } });
+                return BadRequest(new ApiResponse<SupplierDto> { Success = false, Message = inner, Errors = new List<string> { inner } });
+            }
             catch (Exception ex)
             {
+                var msg = ex.InnerException?.Message ?? ex.Message;
                 return StatusCode(500, new ApiResponse<SupplierDto>
                 {
                     Success = false,
-                    Message = ex.Message,
-                    Errors = new List<string> { ex.Message }
+                    Message = msg,
+                    Errors = new List<string> { msg }
                 });
             }
         }

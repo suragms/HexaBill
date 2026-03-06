@@ -17,6 +17,11 @@ namespace HexaBill.Api.Models
         [MaxLength(200)]
         public string Name { get; set; } = string.Empty;
 
+        /// <summary>Lowercase name for unique index (TenantId, NormalizedName). Required by DB.</summary>
+        [Required]
+        [MaxLength(200)]
+        public string NormalizedName { get; set; } = string.Empty;
+
         [MaxLength(50)]
         public string? Phone { get; set; }
 

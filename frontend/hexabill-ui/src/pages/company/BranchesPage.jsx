@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Building2, Plus, ChevronRight, MapPin, LayoutGrid, Users, ArrowLeft } from 'lucide-react'
+import { Building2, Plus, ChevronRight, MapPin, LayoutGrid, Users, ArrowLeft, Edit2, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { branchesAPI, routesAPI, adminAPI } from '../../services'
 import { useBranchesRoutes } from '../../contexts/BranchesRoutesContext'
 import { useAuth } from '../../hooks/useAuth'
 import Modal from '../../components/Modal'
 import { Input } from '../../components/Form'
+import ConfirmDangerModal from '../../components/ConfirmDangerModal'
 import { isAdminOrOwner } from '../../utils/roles'
 
 const BranchesPage = () => {
@@ -25,6 +26,8 @@ const BranchesPage = () => {
   const [showBranchModal, setShowBranchModal] = useState(false)
   const [showRouteModal, setShowRouteModal] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editingRoute, setEditingRoute] = useState(null) // { id, name, branchId, assignedStaffIds }
+  const [routeToDelete, setRouteToDelete] = useState(null)
 
   // Filter state for routes
   const [routeBranchFilter, setRouteBranchFilter] = useState('')
@@ -126,23 +129,75 @@ const BranchesPage = () => {
     }
     try {
       setSaving(true)
-      const res = await routesAPI.createRoute({
-        name: routeForm.name.trim(),
-        branchId: bid,
-        assignedStaffIds: routeForm.assignedStaffIds
-      })
-      if (res?.success) {
-        toast.success('Route created')
-        setShowRouteModal(false)
-        setRouteForm({ name: '', branchId: '', assignedStaffIds: [] })
-        refreshBranchesRoutes()
+      if (editingRoute) {
+        const res = await routesAPI.updateRoute(editingRoute.id, {
+          name: routeForm.name.trim(),
+          branchId: bid,
+          assignedStaffIds: routeForm.assignedStaffIds || []
+        })
+        if (res?.success) {
+          toast.success('Route updated')
+          setShowRouteModal(false)
+          setEditingRoute(null)
+          setRouteForm({ name: '', branchId: '', assignedStaffIds: [] })
+          refreshBranchesRoutes()
+        } else {
+          toast.error(res?.message || 'Failed to update route')
+        }
       } else {
-        toast.error(res?.message || 'Failed to create route')
+        const res = await routesAPI.createRoute({
+          name: routeForm.name.trim(),
+          branchId: bid,
+          assignedStaffIds: routeForm.assignedStaffIds
+        })
+        if (res?.success) {
+          toast.success('Route created')
+          setShowRouteModal(false)
+          setRouteForm({ name: '', branchId: '', assignedStaffIds: [] })
+          refreshBranchesRoutes()
+        } else {
+          toast.error(res?.message || 'Failed to create route')
+        }
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Failed to create route')
+      toast.error(err.response?.data?.message || err.message || (editingRoute ? 'Failed to update route' : 'Failed to create route'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openEditRoute = (r) => {
+    setEditingRoute(r)
+    setRouteForm({
+      name: r.name || '',
+      branchId: String(r.branchId ?? ''),
+      assignedStaffIds: Array.isArray(r.assignedStaffIds) ? [...r.assignedStaffIds] : []
+    })
+    setShowRouteModal(true)
+  }
+
+  const openAddRouteModal = () => {
+    setEditingRoute(null)
+    if (routeBranchFilter) setRouteForm(prev => ({ ...prev, name: '', branchId: routeBranchFilter, assignedStaffIds: [] }))
+    else if (branches.length > 0) setRouteForm(prev => ({ ...prev, name: '', branchId: String(branches[0].id), assignedStaffIds: [] }))
+    else setRouteForm({ name: '', branchId: '', assignedStaffIds: [] })
+    setShowRouteModal(true)
+  }
+
+  const handleDeleteRoute = async () => {
+    if (!routeToDelete) return
+    try {
+      const res = await routesAPI.deleteRoute(routeToDelete.id)
+      if (res?.success !== false) {
+        toast.success('Route deleted')
+        setRouteToDelete(null)
+        refreshBranchesRoutes()
+      } else {
+        toast.error(res?.message || 'Failed to delete route')
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to delete route')
+      setRouteToDelete(null)
     }
   }
 
@@ -298,12 +353,7 @@ const BranchesPage = () => {
             {canManage && (
               <button
                 type="button"
-                onClick={() => {
-                  // Pre-select the filtered branch if active
-                  if (routeBranchFilter) setRouteForm(prev => ({ ...prev, branchId: routeBranchFilter }))
-                  else if (branches.length > 0) setRouteForm(prev => ({ ...prev, branchId: branches[0].id }))
-                  setShowRouteModal(true)
-                }}
+                onClick={openAddRouteModal}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
               >
                 <Plus className="h-4 w-4" />
@@ -326,7 +376,7 @@ const BranchesPage = () => {
                   {canManage && (
                     <button
                       type="button"
-                      onClick={() => { setRouteForm(prev => ({ ...prev, branchId: branches[0]?.id || '' })); setShowRouteModal(true) }}
+                      onClick={() => { setRouteForm(prev => ({ ...prev, branchId: branches[0]?.id || '', name: '', assignedStaffIds: [] })); setEditingRoute(null); setShowRouteModal(true) }}
                       className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
                     >
                       <Plus className="h-4 w-4" />
@@ -339,23 +389,43 @@ const BranchesPage = () => {
           ) : (
             <ul className="space-y-3">
               {routes.map((r) => (
-                <li key={r.id}>
-                  <Link
-                    to={`/routes/${r.id}`}
-                    className="flex items-center justify-between p-4 bg-white rounded-lg border border-neutral-200 hover:border-primary-300 hover:shadow-sm transition"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-primary-50">
+                <li key={r.id} className="bg-white rounded-lg border border-neutral-200 hover:border-primary-300 transition overflow-hidden">
+                  <div className="flex items-center gap-2 p-4">
+                    <Link
+                      to={`/routes/${r.id}`}
+                      className="flex flex-1 items-center gap-3 min-w-0"
+                    >
+                      <div className="p-2 rounded-lg bg-primary-50 shrink-0">
                         <MapPin className="h-5 w-5 text-primary-600" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium text-neutral-900">{r.name}</p>
                         <p className="text-sm text-neutral-500">{r.branchName ?? '—'}</p>
                         <p className="text-xs text-neutral-400">{r.customerCount ?? 0} customer(s), {r.staffCount ?? 0} staff</p>
                       </div>
-                    </div>
-                    <ChevronRight className="h-5 w-5 text-neutral-400" />
-                  </Link>
+                      <ChevronRight className="h-5 w-5 text-neutral-400 shrink-0" />
+                    </Link>
+                    {canManage && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); openEditRoute(r) }}
+                          className="p-2 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition"
+                          title="Edit route"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); setRouteToDelete(r) }}
+                          className="p-2 text-neutral-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                          title="Delete route"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -423,12 +493,22 @@ const BranchesPage = () => {
         </Modal>
       )}
 
-      {/* Add Route Modal */}
+      {/* Delete Route confirmation */}
+      <ConfirmDangerModal
+        isOpen={!!routeToDelete}
+        onClose={() => setRouteToDelete(null)}
+        onConfirm={handleDeleteRoute}
+        title="Delete route"
+        message={routeToDelete ? `Delete route "${routeToDelete.name}"? Customers and staff will be unassigned. This cannot be undone.` : ''}
+        confirmLabel="Delete route"
+      />
+
+      {/* Add / Edit Route Modal */}
       {showRouteModal && (
         <Modal
           isOpen={true}
-          title="Add Route"
-          onClose={() => !saving && setShowRouteModal(false)}
+          title={editingRoute ? 'Edit Route' : 'Add Route'}
+          onClose={() => { if (!saving) { setShowRouteModal(false); setEditingRoute(null); setRouteForm({ name: '', branchId: '', assignedStaffIds: [] }) } }}
         >
           <form onSubmit={handleCreateRoute} className="space-y-4">
             <Input
@@ -480,11 +560,11 @@ const BranchesPage = () => {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setShowRouteModal(false)} className="px-4 py-2 border border-neutral-300 rounded-lg text-sm text-neutral-700 hover:bg-neutral-50">
+              <button type="button" onClick={() => { setShowRouteModal(false); setEditingRoute(null); setRouteForm({ name: '', branchId: '', assignedStaffIds: [] }) }} className="px-4 py-2 border border-neutral-300 rounded-lg text-sm text-neutral-700 hover:bg-neutral-50">
                 Cancel
               </button>
               <button type="submit" disabled={saving} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50">
-                {saving ? 'Saving...' : 'Create Route'}
+                {saving ? 'Saving...' : (editingRoute ? 'Update Route' : 'Create Route')}
               </button>
             </div>
           </form>

@@ -122,7 +122,7 @@ namespace HexaBill.Api.Modules.SuperAdmin
     public class TenantLimitsDto
     {
         public int MaxRequestsPerMinute { get; set; } = 200;
-        public int MaxConcurrentUsers { get; set; } = 50;
+        public int MaxConcurrentUsers { get; set; } = 100;
         public int MaxStorageMb { get; set; } = 1024;
         public int MaxInvoicesPerMonth { get; set; } = 1000;
     }
@@ -1888,7 +1888,7 @@ namespace HexaBill.Api.Modules.SuperAdmin
             var value = System.Text.Json.JsonSerializer.Serialize(new TenantLimitsDto
             {
                 MaxRequestsPerMinute = dto.MaxRequestsPerMinute > 0 ? dto.MaxRequestsPerMinute : 200,
-                MaxConcurrentUsers = dto.MaxConcurrentUsers > 0 ? dto.MaxConcurrentUsers : 50,
+                MaxConcurrentUsers = dto.MaxConcurrentUsers > 0 ? dto.MaxConcurrentUsers : 100,
                 MaxStorageMb = dto.MaxStorageMb > 0 ? dto.MaxStorageMb : 1024,
                 MaxInvoicesPerMonth = dto.MaxInvoicesPerMonth > 0 ? dto.MaxInvoicesPerMonth : 1000
             });

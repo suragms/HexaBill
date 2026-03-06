@@ -180,6 +180,13 @@ else
     }
 }
 
+// Production: ensure PostgreSQL pool supports ~100 concurrent clients (Npgsql default is 100; 150 gives headroom)
+if (usePostgreSQL && !string.IsNullOrWhiteSpace(connectionString) && !connectionString.Contains("Maximum Pool Size", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += ";Maximum Pool Size=150";
+    logger.LogInformation("✅ PostgreSQL connection pool set to 150 for production concurrency");
+}
+
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     logger.LogError("❌ CRITICAL: No database connection string available!");
@@ -1183,6 +1190,11 @@ _ = Task.Run(async () =>
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Suppliers"" ADD COLUMN IF NOT EXISTS ""Email"" character varying(200) NULL;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Suppliers"" ADD COLUMN IF NOT EXISTS ""CreditLimit"" numeric(18,2) NOT NULL DEFAULT 0;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Suppliers"" ADD COLUMN IF NOT EXISTS ""PaymentTerms"" character varying(100) NULL;");
+                    // NormalizedName required by DB unique index; backfill from Name if column was missing
+                    await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Suppliers"" ADD COLUMN IF NOT EXISTS ""NormalizedName"" character varying(200) NULL;");
+                    await context.Database.ExecuteSqlRawAsync(@"UPDATE ""Suppliers"" SET ""NormalizedName"" = LOWER(""Name"") WHERE ""NormalizedName"" IS NULL;");
+                    try { await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Suppliers"" ALTER COLUMN ""NormalizedName"" SET NOT NULL;"); } catch { /* already NOT NULL or empty */ }
+                    try { await context.Database.ExecuteSqlRawAsync(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Suppliers_TenantId_NormalizedName"" ON ""Suppliers"" (""TenantId"", ""NormalizedName"");"); } catch { /* index may exist */ }
                     // CustomerVisits: create if missing (fixes relation "CustomerVisits" does not exist)
                     await context.Database.ExecuteSqlRawAsync(@"
                         CREATE TABLE IF NOT EXISTS ""CustomerVisits"" (

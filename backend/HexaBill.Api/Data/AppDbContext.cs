@@ -156,11 +156,12 @@ namespace HexaBill.Api.Data
                 entity.HasOne(e => e.CreatedByUser).WithMany().HasForeignKey(e => e.CreatedBy);
             });
 
-            // Supplier configuration - Name unique per tenant
+            // Supplier configuration - Name unique per tenant; NormalizedName required by DB (unique index)
             modelBuilder.Entity<Supplier>(entity =>
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.NormalizedName).IsRequired().HasMaxLength(200);
                 entity.Property(e => e.Phone).HasMaxLength(50);
                 entity.Property(e => e.Email).HasMaxLength(200);
                 entity.Property(e => e.Address).HasMaxLength(500);
