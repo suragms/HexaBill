@@ -1103,13 +1103,19 @@ _ = Task.Run(async () =>
     try
     {
         await Task.Delay(3000); // Wait 3 seconds for server to start responding to health checks
+        var isProdEnv = !string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase);
         using (var scope = app.Services.CreateScope())
         {
             var initLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseInit");
             try
             {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            
+            // PRODUCTION: Skip ALL schema work (ALTERs/Migrate) to prevent exit 139. Schema applied via Scripts/RUN_ON_RENDER_PSQL.sql (MigrationFixer).
+            if (context.Database.IsNpgsql() && isProdEnv)
+            {
+                initLogger.LogInformation("Production (PostgreSQL): skipping background schema init to avoid 139. Schema already applied via RUN_ON_RENDER_PSQL.sql.");
+                return;
+            }
             // CRITICAL: Ensure all required columns exist (fixes login when migrations haven't run)
             // Note: Main migration code at startup (lines 272-360) handles this, but this is a safety check
             if (context.Database.IsNpgsql())
