@@ -402,7 +402,7 @@ using (var scope = app.Services.CreateScope())
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Branches"" ADD COLUMN IF NOT EXISTS ""ManagerId1"" integer NULL;");
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Branches"" ADD COLUMN IF NOT EXISTS ""Location"" character varying(200) NULL;");
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Branches"" ADD COLUMN IF NOT EXISTS ""UpdatedAt"" timestamp with time zone NULL;");
-            try { ctx.Database.ExecuteSqlRaw(@"DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='ErrorLogs') THEN ALTER TABLE ""ErrorLogs"" ADD COLUMN IF NOT EXISTS ""ResolvedAt"" timestamp with time zone NULL; END IF; END $$;"); } catch { /* ErrorLogs table may not exist yet */ }
+            // ErrorLogs.ResolvedAt: do NOT alter at startup (causes ERROR/errorMissingColumn on some DBs). Run Scripts/RUN_ON_RENDER_PSQL.sql manually if needed.
             // Purchases: AmountPaid, PaymentType, SupplierId, DueDate (fixes 42703 column p.AmountPaid does not exist)
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""AmountPaid"" numeric(18,2) NULL;");
             ctx.Database.ExecuteSqlRaw(@"ALTER TABLE ""Purchases"" ADD COLUMN IF NOT EXISTS ""PaymentType"" character varying(20) NULL;");
@@ -1112,7 +1112,7 @@ _ = Task.Run(async () =>
                     // Use PostgreSQL native IF NOT EXISTS syntax
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""SessionVersion"" integer NOT NULL DEFAULT 0;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""LastActiveAt"" timestamp with time zone NULL;");
-                    try { await context.Database.ExecuteSqlRawAsync(@"DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='ErrorLogs') THEN ALTER TABLE ""ErrorLogs"" ADD COLUMN IF NOT EXISTS ""ResolvedAt"" timestamp with time zone NULL; END IF; END $$;"); } catch { /* ErrorLogs table may not exist */ }
+                    // ErrorLogs.ResolvedAt: skip at startup to avoid ERROR/errorMissingColumn. Use RUN_ON_RENDER_PSQL.sql if needed.
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Branches"" ADD COLUMN IF NOT EXISTS ""ManagerId"" integer NULL;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Branches"" ADD COLUMN IF NOT EXISTS ""ManagerId1"" integer NULL;");
                     await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Branches"" ADD COLUMN IF NOT EXISTS ""Location"" character varying(200) NULL;");
