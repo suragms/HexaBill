@@ -157,6 +157,7 @@ namespace HexaBill.Api.Data
             });
 
             // Supplier configuration - Name unique per tenant; NormalizedName required by DB (unique index)
+            // Explicit shadow FK "CategoryId" so EF does not use "SupplierCategoryId" (production may lack that column)
             modelBuilder.Entity<Supplier>(entity =>
             {
                 entity.HasKey(e => e.Id);
@@ -168,6 +169,12 @@ namespace HexaBill.Api.Data
                 entity.Property(e => e.CreditLimit).HasColumnType("decimal(18,2)");
                 entity.Property(e => e.PaymentTerms).HasMaxLength(100);
                 entity.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+                entity.HasOne("HexaBill.Api.Models.SupplierCategory", "Category")
+                    .WithMany("Suppliers")
+                    .HasForeignKey("CategoryId")
+                    .OnDelete(DeleteBehavior.SetNull)
+                    .IsRequired(false);
+                entity.Navigation("Category").AutoInclude(false);
             });
 
             // SupplierPayment configuration

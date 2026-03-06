@@ -1195,6 +1195,10 @@ _ = Task.Run(async () =>
                     await context.Database.ExecuteSqlRawAsync(@"UPDATE ""Suppliers"" SET ""NormalizedName"" = LOWER(""Name"") WHERE ""NormalizedName"" IS NULL;");
                     try { await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Suppliers"" ALTER COLUMN ""NormalizedName"" SET NOT NULL;"); } catch { /* already NOT NULL or empty */ }
                     try { await context.Database.ExecuteSqlRawAsync(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Suppliers_TenantId_NormalizedName"" ON ""Suppliers"" (""TenantId"", ""NormalizedName"");"); } catch { /* index may exist */ }
+                    // 42703 fix: ensure CategoryId / SupplierCategoryId exist (EF may use either depending on model)
+                    await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Suppliers"" ADD COLUMN IF NOT EXISTS ""CategoryId"" integer NULL;");
+                    await context.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Suppliers"" ADD COLUMN IF NOT EXISTS ""SupplierCategoryId"" integer NULL;");
+                    try { await context.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_Suppliers_CategoryId"" ON ""Suppliers"" (""CategoryId"");"); } catch { /* index may exist */ }
                     // CustomerVisits: create if missing (fixes relation "CustomerVisits" does not exist)
                     await context.Database.ExecuteSqlRawAsync(@"
                         CREATE TABLE IF NOT EXISTS ""CustomerVisits"" (

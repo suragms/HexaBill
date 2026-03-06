@@ -121,6 +121,10 @@ ALTER TABLE "Suppliers" ADD COLUMN IF NOT EXISTS "NormalizedName" character vary
 UPDATE "Suppliers" SET "NormalizedName" = LOWER("Name") WHERE "NormalizedName" IS NULL;
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='Suppliers' AND column_name='NormalizedName') THEN ALTER TABLE "Suppliers" ALTER COLUMN "NormalizedName" SET NOT NULL; END IF; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS "IX_Suppliers_TenantId_NormalizedName" ON "Suppliers" ("TenantId", "NormalizedName");
+-- 42703 fix: column SupplierCategoryId/CategoryId does not exist (add both for compatibility)
+ALTER TABLE "Suppliers" ADD COLUMN IF NOT EXISTS "CategoryId" integer NULL;
+ALTER TABLE "Suppliers" ADD COLUMN IF NOT EXISTS "SupplierCategoryId" integer NULL;
+CREATE INDEX IF NOT EXISTS "IX_Suppliers_CategoryId" ON "Suppliers" ("CategoryId");
 
 -- CustomerVisits (fixes relation "CustomerVisits" does not exist)
 CREATE TABLE IF NOT EXISTS "CustomerVisits" (
