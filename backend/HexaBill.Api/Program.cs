@@ -358,10 +358,12 @@ using (var scope = app.Services.CreateScope())
 {
     var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var isProduction = !string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase);
-    if (ctx.Database.IsNpgsql() && isProduction)
+    var dbUrl = Environment.GetEnvironmentVariable("DATABASE_URL") ?? "";
+    var isRenderDb = dbUrl.Contains("dpg-", StringComparison.OrdinalIgnoreCase) || dbUrl.Contains("render.com", StringComparison.OrdinalIgnoreCase);
+    if (ctx.Database.IsNpgsql() && (isProduction || isRenderDb))
     {
         var startupLog = app.Services.GetService<ILoggerFactory>()?.CreateLogger("Startup");
-        startupLog?.LogInformation("Production (PostgreSQL): skipping sync schema init to avoid 139; background task will apply schema.");
+        startupLog?.LogInformation("Production/Render (PostgreSQL): skipping sync schema init to avoid 139. Run Scripts/RUN_ON_RENDER_PSQL.sql if needed.");
     }
     else if (ctx.Database.IsNpgsql())
     {
@@ -1104,16 +1106,18 @@ _ = Task.Run(async () =>
     {
         await Task.Delay(3000); // Wait 3 seconds for server to start responding to health checks
         var isProdEnv = !string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase);
+        var dbUrlBg = Environment.GetEnvironmentVariable("DATABASE_URL") ?? "";
+        var isRenderDbBg = dbUrlBg.Contains("dpg-", StringComparison.OrdinalIgnoreCase) || dbUrlBg.Contains("render.com", StringComparison.OrdinalIgnoreCase);
         using (var scope = app.Services.CreateScope())
         {
             var initLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseInit");
             try
             {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            // PRODUCTION: Skip ALL schema work (ALTERs/Migrate) to prevent exit 139. Schema applied via Scripts/RUN_ON_RENDER_PSQL.sql (MigrationFixer).
-            if (context.Database.IsNpgsql() && isProdEnv)
+            // PRODUCTION / RENDER: Skip ALL schema work to prevent exit 139. Schema applied via RUN_ON_RENDER_PSQL.sql (MigrationFixer).
+            if (context.Database.IsNpgsql() && (isProdEnv || isRenderDbBg))
             {
-                initLogger.LogInformation("Production (PostgreSQL): skipping background schema init to avoid 139. Schema already applied via RUN_ON_RENDER_PSQL.sql.");
+                initLogger.LogInformation("Production/Render (PostgreSQL): skipping background schema init to avoid 139. Schema via RUN_ON_RENDER_PSQL.sql.");
                 return;
             }
             // CRITICAL: Ensure all required columns exist (fixes login when migrations haven't run)
