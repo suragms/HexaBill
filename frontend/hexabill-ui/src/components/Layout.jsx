@@ -95,6 +95,75 @@ const Layout = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // Global keyboard shortcuts (work on any tenant page; skip when typing in inputs)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = e.target?.tagName?.toUpperCase()
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!e.target?.isContentEditable
+      if (inInput) return
+
+      const ctrlOrMeta = e.ctrlKey || e.metaKey
+      if (ctrlOrMeta) {
+        const key = (e.key || '').toLowerCase()
+        if (key === 's') {
+          e.preventDefault()
+          if (isAdminOrOwner(user)) navigate('/settings')
+          return
+        }
+        if (key === 'b') {
+          e.preventDefault()
+          if (isAdminOrOwner(user)) navigate('/backup')
+          return
+        }
+        if (key === 'u') {
+          e.preventDefault()
+          if (isAdminOrOwner(user)) navigate('/users')
+          return
+        }
+        return
+      }
+
+      switch (e.key) {
+        case 'F1':
+          e.preventDefault()
+          navigate('/products')
+          break
+        case 'F3':
+          e.preventDefault()
+          navigate('/pos')
+          break
+        case 'F4':
+          e.preventDefault()
+          if (isAdminOrOwner(user)) navigate('/purchases')
+          break
+        case 'F5':
+          e.preventDefault()
+          navigate('/expenses')
+          break
+        case 'F7':
+          e.preventDefault()
+          if (isAdminOrOwner(user)) navigate('/reports?tab=sales')
+          break
+        case 'F8':
+          e.preventDefault()
+          if (isAdminOrOwner(user)) navigate('/reports?tab=profit-loss')
+          break
+        case 'F9':
+          e.preventDefault()
+          if (isAdminOrOwner(user)) navigate('/reports?tab=outstanding')
+          break
+        case 'F10':
+          e.preventDefault()
+          navigate('/ledger')
+          break
+        default:
+          break
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [user, navigate])
+
   // CRITICAL: SystemAdmin should ONLY see tenant navigation if they are impersonating
   const userIsSystemAdmin = isSystemAdmin(user)
   const selectedTenantId = impersonatedTenantId
