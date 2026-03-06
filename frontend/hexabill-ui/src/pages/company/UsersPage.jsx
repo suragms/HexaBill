@@ -598,10 +598,10 @@ const UsersPage = () => {
           </div>
         </div>
 
-        {/* Users Table */}
+        {/* Users Table - min-width so mobile can scroll horizontally to see all columns */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="min-w-[900px] w-full divide-y divide-gray-200">
               <thead className="bg-gradient-to-r from-blue-900 to-blue-800 text-white">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">

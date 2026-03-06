@@ -701,13 +701,16 @@ const BranchDetailPage = () => {
             <p className="text-neutral-500 py-6">No staff assigned to this branch. {canManage && 'Click "Assign staff" or assign from the Users page.'}</p>
           ) : (
             <div className="overflow-x-auto border border-neutral-200 rounded-lg">
-              <table className="min-w-full divide-y divide-neutral-200">
+              <table className="min-w-[520px] w-full divide-y divide-neutral-200">
                 <thead className="bg-neutral-50 sticky top-0">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-neutral-600 uppercase">Name</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-neutral-600 uppercase">Email</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-neutral-600 uppercase">Assigned routes (this branch)</th>
-                    {canManage && <th className="px-4 py-2 text-right text-xs font-medium text-neutral-600 uppercase">Actions</th>}
+                    <th className="px-4 py-2 text-left text-xs font-medium text-neutral-600 uppercase whitespace-nowrap">Name</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-neutral-600 uppercase whitespace-nowrap">Email</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-neutral-600 uppercase min-w-[140px]" title="Assigned routes (this branch)">
+                      <span className="hidden sm:inline">Assigned routes (this branch)</span>
+                      <span className="sm:hidden">Routes</span>
+                    </th>
+                    {canManage && <th className="px-4 py-2 text-right text-xs font-medium text-neutral-600 uppercase whitespace-nowrap">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200 bg-white">
@@ -717,9 +720,9 @@ const BranchDetailPage = () => {
                       .map(rid => routeIdToName[rid] || `Route #${rid}`)
                     return (
                       <tr key={u.id} className="hover:bg-neutral-50">
-                        <td className="px-4 py-2 font-medium">{u.name}</td>
-                        <td className="px-4 py-2 text-sm text-neutral-600">{u.email || '—'}</td>
-                        <td className="px-4 py-2 text-sm">{routeNames.length ? routeNames.join(', ') : '—'}</td>
+                        <td className="px-4 py-2 font-medium whitespace-nowrap">{u.name}</td>
+                        <td className="px-4 py-2 text-sm text-neutral-600 min-w-[140px]">{u.email || '—'}</td>
+                        <td className="px-4 py-2 text-sm min-w-[120px]">{routeNames.length ? routeNames.join(', ') : '—'}</td>
                         {canManage && (
                           <td className="px-4 py-2 text-right">
                             <button
