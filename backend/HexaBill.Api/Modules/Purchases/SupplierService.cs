@@ -464,17 +464,17 @@ namespace HexaBill.Api.Modules.Purchases
                     .AnyAsync(sp => sp.TenantId == tenantId && sp.SupplierName.ToLower() == currentNormalized);
                 if (referencedByPurchases || referencedByPayments)
                 {
-                    var newName = (request.Name ?? currentName).Trim();
-                    if (string.IsNullOrWhiteSpace(newName)) newName = currentName;
-                    var newNorm = newName.ToLowerInvariant();
+                    var nameForNew = (request.Name ?? currentName).Trim();
+                    if (string.IsNullOrWhiteSpace(nameForNew)) nameForNew = currentName;
+                    var newNorm = nameForNew.ToLowerInvariant();
                     var exists = await _context.Suppliers
                         .AnyAsync(s => s.TenantId == tenantId && s.NormalizedName == newNorm);
                     if (exists)
-                        throw new ArgumentException($"A supplier with the name \"{newName}\" already exists.", nameof(request));
+                        throw new ArgumentException($"A supplier with the name \"{nameForNew}\" already exists.", nameof(request));
                     supplier = new Supplier
                     {
                         TenantId = tenantId,
-                        Name = newName,
+                        Name = nameForNew,
                         NormalizedName = newNorm,
                         Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone!.Trim(),
                         Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email!.Trim(),
