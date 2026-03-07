@@ -978,18 +978,24 @@ const ExpensesPage = () => {
                               </button>
                             </>
                           )}
-                          <button
-                            onClick={() => handleEdit(expense)}
-                            className="text-indigo-600 hover:text-indigo-900"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(expense.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {isAdminOrOwner(user) && (
+                            <>
+                              <button
+                                onClick={() => handleEdit(expense)}
+                                className="text-indigo-600 hover:text-indigo-900"
+                                title="Edit expense"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(expense.id)}
+                                className="text-red-600 hover:text-red-900"
+                                title="Delete expense"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -1073,21 +1079,23 @@ const ExpensesPage = () => {
                             </button>
                           </>
                         )}
-                        <button
-                          onClick={() => handleEdit(expense)}
-                          className="text-indigo-600 hover:text-indigo-900 p-1"
-                          title="Edit expense"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
                         {isAdminOrOwner(user) && (
-                          <button
-                            onClick={() => handleDelete(expense.id)}
-                            className="text-red-600 hover:text-red-900 p-1"
-                            title="Delete expense"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleEdit(expense)}
+                              className="text-indigo-600 hover:text-indigo-900 p-1"
+                              title="Edit expense"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(expense.id)}
+                              className="text-red-600 hover:text-red-900 p-1"
+                              title="Delete expense"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>

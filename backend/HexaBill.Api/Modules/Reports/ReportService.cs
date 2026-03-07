@@ -358,7 +358,7 @@ namespace HexaBill.Api.Modules.Reports
                     cogsToday = 0;
                 }
 
-                // Profit = Net Sales (Sales - Returns) - COGS - Expenses
+                // Profit = Net Sales (Sales - Returns) - COGS - Expenses. VendorDiscounts are not included in P&L.
                 var grossProfit = netSalesToday - cogsToday;
                 var profitToday = grossProfit - expensesToday;
                 
@@ -918,6 +918,7 @@ namespace HexaBill.Api.Modules.Reports
                     .Include(pr => pr.Purchase)
                     .Where(pr => pr.Purchase.TenantId == tenantId && pr.Purchase.SupplierName == supplierName)
                     .SumAsync(pr => (decimal?)pr.GrandTotal) ?? 0;
+                // ISOLATION: Supplier balance uses only SupplierPayments. VendorDiscounts are excluded from reports.
                 var totalPayments = await _context.SupplierPayments
                     .Where(sp => sp.TenantId == tenantId && sp.SupplierName == supplierName)
                     .SumAsync(sp => (decimal?)sp.Amount) ?? 0;

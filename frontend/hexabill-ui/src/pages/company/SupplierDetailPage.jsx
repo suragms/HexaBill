@@ -1,12 +1,22 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
-import { ArrowLeft, DollarSign, FileText, CreditCard, Calendar, Download, Banknote, Pencil } from 'lucide-react'
+import { ArrowLeft, DollarSign, FileText, CreditCard, Calendar, Download, Banknote, Pencil, Tag, Plus, Trash2 } from 'lucide-react'
 import { suppliersAPI, purchasesAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
 import toast from 'react-hot-toast'
 import ConfirmDangerModal from '../../components/ConfirmDangerModal'
+import Modal from '../../components/Modal'
+import { useAuth } from '../../hooks/useAuth'
+import { isAdminOrOwner } from '../../utils/roles'
 
-const tabs = [
+const DISCOUNT_TYPES = [
+  'Cash Discount',
+  'Free Products',
+  'Promotional Offer',
+  'Negotiated Discount'
+]
+
+const baseTabs = [
   { id: 'summary', label: 'Summary', icon: FileText },
   { id: 'ledger', label: 'Ledger', icon: DollarSign },
   { id: 'purchases', label: 'Purchase History', icon: FileText },
@@ -16,6 +26,7 @@ const tabs = [
 const SupplierDetailPage = () => {
   const { name } = useParams()
   const [searchParams] = useSearchParams()
+  const { user } = useAuth()
   const supplierName = name ? decodeURIComponent(name) : ''
   const [activeTab, setActiveTab] = useState('summary')
   const [balance, setBalance] = useState(null)
@@ -36,6 +47,28 @@ const SupplierDetailPage = () => {
   const [preFillPayment, setPreFillPayment] = useState({ amount: '', reference: '' })
   const [showOverpaymentConfirm, setShowOverpaymentConfirm] = useState(false)
   const [supplierInfo, setSupplierInfo] = useState(null)
+  // Vendor Discounts (Owner/Admin only; not in ledger or reports)
+  const [vendorDiscounts, setVendorDiscounts] = useState([])
+  const [totalSavings, setTotalSavings] = useState(0)
+  const [showVendorDiscountModal, setShowVendorDiscountModal] = useState(false)
+  const [editingVendorDiscount, setEditingVendorDiscount] = useState(null)
+  const [vendorDiscountForm, setVendorDiscountForm] = useState({
+    purchaseId: '',
+    amount: '',
+    discountDate: new Date().toISOString().split('T')[0],
+    discountType: 'Cash Discount',
+    reason: ''
+  })
+  const [savingVendorDiscount, setSavingVendorDiscount] = useState(false)
+  const [showDeleteVendorDiscountConfirm, setShowDeleteVendorDiscountConfirm] = useState(false)
+  const [deleteVendorDiscountId, setDeleteVendorDiscountId] = useState(null)
+
+  const canSeeVendorDiscounts = isAdminOrOwner(user) && supplierInfo?.id
+  const tabs = useMemo(() => {
+    const t = [...baseTabs]
+    if (canSeeVendorDiscounts) t.push({ id: 'vendor-discounts', label: 'Vendor Discounts', icon: Tag })
+    return t
+  }, [canSeeVendorDiscounts])
 
   useEffect(() => {
     if (supplierName) {
@@ -47,10 +80,13 @@ const SupplierDetailPage = () => {
     if (!supplierName) return
     try {
       setLoading(true)
+      let supplierData = null
       try {
         const supplierRes = await suppliersAPI.getSupplier(supplierName)
-        if (supplierRes?.success && supplierRes?.data) setSupplierInfo(supplierRes.data)
-        else setSupplierInfo(null)
+        if (supplierRes?.success && supplierRes?.data) {
+          supplierData = supplierRes.data
+          setSupplierInfo(supplierRes.data)
+        } else setSupplierInfo(null)
       } catch (_) {
         setSupplierInfo(null)
       }
@@ -73,6 +109,21 @@ const SupplierDetailPage = () => {
           const payments = (res.data || []).filter(t => (t.type || '').toLowerCase() === 'payment')
           setTransactions(payments)
         } else setTransactions([])
+      }
+      if (activeTab === 'vendor-discounts' && supplierData?.id) {
+        try {
+          const res = await suppliersAPI.getVendorDiscounts(supplierData.id)
+          if (res?.success && res?.data) {
+            setVendorDiscounts(res.data.items || [])
+            setTotalSavings(res.data.totalSavings ?? 0)
+          } else {
+            setVendorDiscounts([])
+            setTotalSavings(0)
+          }
+        } catch (_) {
+          setVendorDiscounts([])
+          setTotalSavings(0)
+        }
       }
     } catch (error) {
       console.error(error)
@@ -148,6 +199,97 @@ const SupplierDetailPage = () => {
     a.click()
     URL.revokeObjectURL(url)
     toast.success('Exported to CSV')
+  }
+
+  const openAddVendorDiscount = () => {
+    setEditingVendorDiscount(null)
+    setVendorDiscountForm({
+      purchaseId: '',
+      amount: '',
+      discountDate: new Date().toISOString().split('T')[0],
+      discountType: 'Cash Discount',
+      reason: ''
+    })
+    setShowVendorDiscountModal(true)
+  }
+
+  const openEditVendorDiscount = (row) => {
+    setEditingVendorDiscount(row)
+    setVendorDiscountForm({
+      purchaseId: row.purchaseId ?? '',
+      amount: String(row.amount ?? ''),
+      discountDate: row.discountDate ? new Date(row.discountDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      discountType: row.discountType || 'Cash Discount',
+      reason: row.reason || ''
+    })
+    setShowVendorDiscountModal(true)
+  }
+
+  const saveVendorDiscount = async (e) => {
+    e.preventDefault()
+    if (!supplierInfo?.id) return
+    const amount = parseFloat(vendorDiscountForm.amount)
+    if (!amount || amount < 0.01) {
+      toast.error('Amount must be at least 0.01')
+      return
+    }
+    if (!vendorDiscountForm.reason?.trim() || vendorDiscountForm.reason.trim().length < 3) {
+      toast.error('Reason is required (min 3 characters)')
+      return
+    }
+    const payload = {
+      amount,
+      discountDate: vendorDiscountForm.discountDate,
+      discountType: vendorDiscountForm.discountType,
+      reason: vendorDiscountForm.reason.trim()
+    }
+    if (vendorDiscountForm.purchaseId) payload.purchaseId = parseInt(vendorDiscountForm.purchaseId, 10)
+    setSavingVendorDiscount(true)
+    try {
+      if (editingVendorDiscount) {
+        const res = await suppliersAPI.updateVendorDiscount(supplierInfo.id, editingVendorDiscount.id, payload)
+        if (res?.success) {
+          toast.success('Vendor discount updated')
+          setShowVendorDiscountModal(false)
+          loadData()
+        } else toast.error(res?.message || 'Update failed')
+      } else {
+        const res = await suppliersAPI.createVendorDiscount(supplierInfo.id, payload)
+        if (res?.success) {
+          toast.success('Vendor discount added')
+          setShowVendorDiscountModal(false)
+          loadData()
+        } else toast.error(res?.message || 'Create failed')
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save')
+    } finally {
+      setSavingVendorDiscount(false)
+    }
+  }
+
+  const confirmDeleteVendorDiscount = async () => {
+    if (!supplierInfo?.id || !deleteVendorDiscountId) return
+    try {
+      const res = await suppliersAPI.deleteVendorDiscount(supplierInfo.id, deleteVendorDiscountId)
+      if (res?.success) {
+        toast.success('Vendor discount deleted')
+        setShowDeleteVendorDiscountConfirm(false)
+        setDeleteVendorDiscountId(null)
+        loadData()
+      } else toast.error(res?.message || 'Delete failed')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete')
+    }
+  }
+
+  const getDiscountTypeBadgeClass = (type) => {
+    const t = (type || '').toLowerCase()
+    if (t.includes('cash')) return 'bg-green-100 text-green-800'
+    if (t.includes('free')) return 'bg-blue-100 text-blue-800'
+    if (t.includes('promo')) return 'bg-purple-100 text-purple-800'
+    if (t.includes('negotiated')) return 'bg-amber-100 text-amber-800'
+    return 'bg-neutral-100 text-neutral-700'
   }
 
   if (!supplierName) {
@@ -516,6 +658,75 @@ const SupplierDetailPage = () => {
               </div>
             </div>
           )}
+
+          {activeTab === 'vendor-discounts' && (
+            <div className="bg-white rounded-lg border-2 border-lime-300 overflow-hidden">
+              {!canSeeVendorDiscounts ? (
+                <div className="p-6 text-center">
+                  {!supplierInfo?.id ? (
+                    <p className="text-primary-600">Add this supplier to the directory to track vendor discounts.</p>
+                  ) : (
+                    <p className="text-amber-700 font-medium">Access Restricted. Vendor Discounts are only available to Owner and Admin.</p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="p-4 border-b border-lime-200 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-bold text-green-800">Total Savings: {formatCurrency(totalSavings)}</p>
+                      <p className="text-xs text-primary-500 mt-0.5">Private tracking – not reflected in ledger or reports.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openAddVendorDiscount}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm"
+                    >
+                      <Plus className="h-4 w-4" /> Add Vendor Discount
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-primary-100">
+                        <tr>
+                          <th className="text-left p-2">Date</th>
+                          <th className="text-left p-2">Purchase Ref</th>
+                          <th className="text-left p-2">Type</th>
+                          <th className="text-right p-2">Amount</th>
+                          <th className="text-left p-2">Reason</th>
+                          <th className="text-left p-2">Added By</th>
+                          <th className="text-center p-2">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vendorDiscounts.length === 0 ? (
+                          <tr><td colSpan={7} className="p-6 text-center text-primary-500">No vendor discounts recorded yet.</td></tr>
+                        ) : (
+                          vendorDiscounts.map((row) => (
+                            <tr key={row.id} className="border-t border-primary-100 hover:bg-primary-50">
+                              <td className="p-2">{formatDate(row.discountDate)}</td>
+                              <td className="p-2">{row.purchaseInvoiceNo || '—'}</td>
+                              <td className="p-2">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getDiscountTypeBadgeClass(row.discountType)}`}>
+                                  {row.discountType}
+                                </span>
+                              </td>
+                              <td className="p-2 text-right font-bold">{formatCurrency(row.amount)}</td>
+                              <td className="p-2 max-w-xs truncate" title={row.reason}>{row.reason || '—'}</td>
+                              <td className="p-2 text-primary-600">{row.createdByUserName || '—'}</td>
+                              <td className="p-2 text-center">
+                                <button type="button" onClick={() => openEditVendorDiscount(row)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Edit"><Pencil className="h-4 w-4 inline" /></button>
+                                <button type="button" onClick={() => { setDeleteVendorDiscountId(row.id); setShowDeleteVendorDiscountConfirm(true) }} className="text-red-600 hover:text-red-800 p-1 ml-1" title="Delete"><Trash2 className="h-4 w-4 inline" /></button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -526,6 +737,94 @@ const SupplierDetailPage = () => {
         title="Record overpayment?"
         message={balance ? `Amount (${formatCurrency(parseFloat(paymentForm.amount) || 0)}) exceeds outstanding (${formatCurrency(balance.netPayable)}). Record overpayment?` : ''}
         confirmLabel="Record overpayment"
+      />
+
+      <Modal
+        isOpen={showVendorDiscountModal}
+        onClose={() => { setShowVendorDiscountModal(false); setEditingVendorDiscount(null) }}
+        title={editingVendorDiscount ? 'Edit Vendor Discount' : 'Add Vendor Discount'}
+        size="md"
+      >
+        <form onSubmit={saveVendorDiscount} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-primary-700 mb-1">Related Purchase (optional)</label>
+            <select
+              value={vendorDiscountForm.purchaseId}
+              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, purchaseId: e.target.value })}
+              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
+            >
+              <option value="">— None —</option>
+              {purchases.filter(p => (p.paymentStatus || '').toLowerCase() !== 'paid' || (p.balanceAmount || 0) > 0).map(p => (
+                <option key={p.id} value={p.id}>{p.invoiceNo} – {formatCurrency(p.balanceAmount || 0)} balance</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-primary-700 mb-1">Discount Amount (AED) *</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              value={vendorDiscountForm.amount}
+              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, amount: e.target.value })}
+              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-primary-700 mb-1">Discount Date *</label>
+            <input
+              type="date"
+              required
+              max={new Date().toISOString().split('T')[0]}
+              value={vendorDiscountForm.discountDate}
+              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, discountDate: e.target.value })}
+              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-primary-700 mb-1">Discount Type *</label>
+            <select
+              value={vendorDiscountForm.discountType}
+              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, discountType: e.target.value })}
+              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
+            >
+              {DISCOUNT_TYPES.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-primary-700 mb-1">Reason / Notes *</label>
+            <textarea
+              required
+              minLength={3}
+              rows={3}
+              placeholder="e.g., 5% bulk order discount, 10 boxes free"
+              value={vendorDiscountForm.reason}
+              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, reason: e.target.value })}
+              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
+            />
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+            This discount will be tracked privately and will NOT affect ledger, cash flow, or any reports.
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button type="button" onClick={() => { setShowVendorDiscountModal(false); setEditingVendorDiscount(null) }} className="px-4 py-2 border-2 border-primary-300 rounded-lg hover:bg-primary-50 font-medium">Cancel</button>
+            <button type="submit" disabled={savingVendorDiscount} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium">
+              {savingVendorDiscount ? 'Saving...' : 'Save Discount'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDangerModal
+        isOpen={showDeleteVendorDiscountConfirm}
+        onClose={() => { setShowDeleteVendorDiscountConfirm(false); setDeleteVendorDiscountId(null) }}
+        onConfirm={confirmDeleteVendorDiscount}
+        title="Delete vendor discount?"
+        message="Delete this vendor discount record? This cannot be undone."
+        confirmLabel="Delete"
       />
     </div>
   )

@@ -34,6 +34,7 @@ namespace HexaBill.Api.Modules.Purchases
 
         public async Task<SupplierBalanceDto> GetSupplierBalanceAsync(int tenantId, string supplierName)
         {
+            // ISOLATION: VendorDiscounts are intentionally excluded. Balance = Purchases - Returns - Payments only.
             // Calculate total purchases (what we owe) + OWNER FILTER
             var totalPurchases = await _context.Purchases
                 .Where(p => p.TenantId == tenantId && p.SupplierName == supplierName)
@@ -77,6 +78,7 @@ namespace HexaBill.Api.Modules.Purchases
 
         public async Task<List<SupplierTransactionDto>> GetSupplierTransactionsAsync(int tenantId, string supplierName, DateTime? fromDate = null, DateTime? toDate = null)
         {
+            // ISOLATION: Ledger shows only Purchases, PurchaseReturns, and SupplierPayments. VendorDiscounts are excluded.
             var transactions = new List<SupplierTransactionDto>();
 
             // Purchases (debits) + OWNER FILTER

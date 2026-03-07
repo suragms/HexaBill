@@ -1243,6 +1243,23 @@ export const suppliersAPI = {
   deleteSupplier: async (supplierName) => {
     const response = await api.delete(`/suppliers/${encodeURIComponent(supplierName)}`)
     return response.data
+  },
+  // Vendor Discounts (Owner/Admin only; not reflected in ledger or reports)
+  getVendorDiscounts: async (supplierId) => {
+    const response = await api.get(`/suppliers/${supplierId}/vendor-discounts`)
+    return response.data
+  },
+  createVendorDiscount: async (supplierId, data) => {
+    const response = await api.post(`/suppliers/${supplierId}/vendor-discounts`, data)
+    return response.data
+  },
+  updateVendorDiscount: async (supplierId, id, data) => {
+    const response = await api.put(`/suppliers/${supplierId}/vendor-discounts/${id}`, data)
+    return response.data
+  },
+  deleteVendorDiscount: async (supplierId, id) => {
+    const response = await api.delete(`/suppliers/${supplierId}/vendor-discounts/${id}`)
+    return response.data
   }
 }
 

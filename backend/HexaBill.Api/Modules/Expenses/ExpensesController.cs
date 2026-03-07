@@ -236,6 +236,7 @@ namespace HexaBill.Api.Modules.Expenses
         }
 
         [HttpPut("{id}")]
+        [Authorize(Roles = "Admin,Owner")]
         public async Task<ActionResult<ApiResponse<ExpenseDto>>> UpdateExpense(int id, [FromBody] CreateExpenseRequest request)
         {
             try

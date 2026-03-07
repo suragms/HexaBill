@@ -36,6 +36,7 @@ namespace HexaBill.Api.Data
         public DbSet<SupplierCategory> SupplierCategories { get; set; }
         public DbSet<Supplier> Suppliers { get; set; }
         public DbSet<SupplierPayment> SupplierPayments { get; set; }
+        public DbSet<VendorDiscount> VendorDiscounts { get; set; }
         public DbSet<Purchase> Purchases { get; set; }
         public DbSet<PurchaseItem> PurchaseItems { get; set; }
         public DbSet<Sale> Sales { get; set; }
@@ -188,6 +189,20 @@ namespace HexaBill.Api.Data
                 entity.Property(e => e.Mode).HasConversion<string>();
                 entity.HasIndex(e => new { e.TenantId, e.PaymentDate });
                 entity.HasIndex(e => new { e.TenantId, e.SupplierName });
+            });
+
+            // VendorDiscount configuration - private tracking only; NOT used in ledger, balance, or reports
+            modelBuilder.Entity<VendorDiscount>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.DiscountType).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.Reason).IsRequired().HasMaxLength(500);
+                entity.HasIndex(e => e.TenantId);
+                entity.HasIndex(e => e.SupplierId);
+                entity.HasOne(e => e.Supplier).WithMany().HasForeignKey(e => e.SupplierId).OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(e => e.Purchase).WithMany().HasForeignKey(e => e.PurchaseId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(e => e.CreatedByUser).WithMany().HasForeignKey(e => e.CreatedBy);
             });
 
             // PurchaseItem configuration
