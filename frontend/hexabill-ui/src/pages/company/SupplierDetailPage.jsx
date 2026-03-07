@@ -69,6 +69,7 @@ const SupplierDetailPage = () => {
   const [savingVendorDiscount, setSavingVendorDiscount] = useState(false)
   const [showDeleteVendorDiscountConfirm, setShowDeleteVendorDiscountConfirm] = useState(false)
   const [deleteVendorDiscountId, setDeleteVendorDiscountId] = useState(null)
+  const [addingToDirectory, setAddingToDirectory] = useState(false)
 
   const canUseVendorDiscounts = isAdminOrOwner(user) && supplierInfo?.id
   const showVendorDiscountsTab = isAdminOrOwner(user) && supplierInfo != null
@@ -97,6 +98,18 @@ const SupplierDetailPage = () => {
         } else setSupplierInfo(null)
       } catch (_) {
         setSupplierInfo(null)
+      }
+      // When on Vendor Discounts tab and supplier has no directory row, add them so Add button and form show without extra step
+      if (activeTab === 'vendor-discounts' && isAdminOrOwner(user) && supplierName && supplierData && !supplierData.id) {
+        try {
+          const createRes = await suppliersAPI.createSupplier({ name: supplierName.trim() })
+          if (createRes?.success && createRes?.data) {
+            supplierData = createRes.data
+            setSupplierInfo(createRes.data)
+          }
+        } catch (_) {
+          // keep existing supplierData; user can still use "Add supplier to directory" button if shown
+        }
       }
       if (activeTab === 'summary' || activeTab === 'ledger' || activeTab === 'purchases') {
         const balanceRes = await suppliersAPI.getSupplierBalance(supplierName)
@@ -268,6 +281,24 @@ const SupplierDetailPage = () => {
       toast.error(err?.response?.data?.message || 'Failed to delete payment')
     } finally {
       setDeletingPayment(false)
+    }
+  }
+
+  const handleAddSupplierToDirectory = async () => {
+    if (!supplierName?.trim()) return
+    setAddingToDirectory(true)
+    try {
+      const res = await suppliersAPI.createSupplier({ name: supplierName.trim() })
+      if (res?.success) {
+        toast.success('Supplier added to directory. You can now add vendor discounts below.')
+        await loadData()
+      } else {
+        toast.error(res?.message || 'Failed to add supplier to directory')
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to add supplier to directory')
+    } finally {
+      setAddingToDirectory(false)
     }
   }
 
@@ -741,9 +772,20 @@ const SupplierDetailPage = () => {
           {activeTab === 'vendor-discounts' && (
             <div className="bg-white rounded-lg border-2 border-lime-300 overflow-hidden">
               {!canUseVendorDiscounts ? (
-                <div className="p-6 text-center">
+                <div className="p-6 text-center space-y-4">
                   {!supplierInfo?.id ? (
-                    <p className="text-primary-600">Add this supplier to the directory to track vendor discounts.</p>
+                    <>
+                      <p className="text-primary-600">Add this supplier to the directory to track vendor discounts. Then you can use the <strong>Add Vendor Discount</strong> button and enter amount and reason.</p>
+                      <button
+                        type="button"
+                        onClick={handleAddSupplierToDirectory}
+                        disabled={addingToDirectory}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-medium"
+                      >
+                        <Plus className="h-4 w-4" />
+                        {addingToDirectory ? 'Adding to directory...' : 'Add supplier to directory'}
+                      </button>
+                    </>
                   ) : (
                     <p className="text-amber-700 font-medium">Access Restricted. Vendor Discounts are only available to Owner and Admin.</p>
                   )}
