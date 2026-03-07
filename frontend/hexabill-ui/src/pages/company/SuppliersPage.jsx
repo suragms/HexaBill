@@ -26,7 +26,7 @@ const SuppliersPage = () => {
   const [creating, setCreating] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState(null)
-  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', address: '', creditLimit: '', paymentTerms: '' })
+  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', address: '', creditLimit: '', paymentTerms: '', isActive: true })
   const [editFormIsDeactivated, setEditFormIsDeactivated] = useState(false)
   const [editFormLoadFailed, setEditFormLoadFailed] = useState(false)
   const [updating, setUpdating] = useState(false)
@@ -95,7 +95,8 @@ const SuppliersPage = () => {
           email: d.email || '',
           address: d.address || '',
           creditLimit: d.creditLimit != null ? String(d.creditLimit) : '',
-          paymentTerms: d.paymentTerms || ''
+          paymentTerms: d.paymentTerms || '',
+          isActive: d.isActive !== false
         })
       } else {
         setEditFormLoadFailed(true)
@@ -105,14 +106,15 @@ const SuppliersPage = () => {
           email: '',
           address: '',
           creditLimit: s.creditLimit != null ? String(s.creditLimit) : '',
-          paymentTerms: ''
+          paymentTerms: '',
+          isActive: s.isActive !== false
         })
       }
     } catch (err) {
       console.error(err)
       setEditFormLoadFailed(true)
       if (err?.response?.status === 404) {
-        toast.error('Supplier is deactivated or not in directory. You can view ledger but cannot edit.')
+        toast.error('Supplier not in directory. Add from ledger or create to edit.')
       } else {
         toast.error('Could not load supplier details')
       }
@@ -122,7 +124,8 @@ const SuppliersPage = () => {
         email: '',
         address: '',
         creditLimit: s.creditLimit != null ? String(s.creditLimit) : '',
-        paymentTerms: ''
+        paymentTerms: '',
+        isActive: s.isActive !== false
       })
     }
   }
@@ -143,7 +146,8 @@ const SuppliersPage = () => {
         email: editForm.email?.trim() || undefined,
         address: editForm.address?.trim() || undefined,
         creditLimit: editForm.creditLimit !== '' ? parseFloat(editForm.creditLimit) : undefined,
-        paymentTerms: editForm.paymentTerms?.trim() || undefined
+        paymentTerms: editForm.paymentTerms?.trim() || undefined,
+        isActive: editForm.isActive
       })
       if (res?.success) {
         toast.success('Supplier updated successfully')
@@ -319,7 +323,11 @@ const SuppliersPage = () => {
                   ) : (
                     filteredSuppliers.map((s, i) => (
                       <tr key={i} className="border-t border-primary-100 hover:bg-primary-50">
-                        <td className="p-3 font-medium text-primary-900">{s.supplierName}</td>
+                        <td className="p-3 font-medium text-primary-900">
+                          <span className="inline-flex items-center gap-2">{s.supplierName}
+                            {s.isActive === false && <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800 border border-amber-300">Deactivated</span>}
+                          </span>
+                        </td>
                         <td className="p-3 text-primary-600">{s.phone || '-'}</td>
                         <td className="p-3 text-right">{formatCurrency(s.totalPurchases || 0)}</td>
                         <td className="p-3 text-right text-green-700">{formatCurrency(s.totalPaid || 0)}</td>
@@ -369,7 +377,9 @@ const SuppliersPage = () => {
                   <div key={i} className="bg-primary-50 rounded-lg border border-primary-200 p-4">
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <span className="font-medium text-primary-900">{s.supplierName}</span>
+                        <span className="font-medium text-primary-900 inline-flex items-center gap-2">{s.supplierName}
+                          {s.isActive === false && <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800 border border-amber-300">Deactivated</span>}
+                        </span>
                         {s.phone && <p className="text-sm text-primary-600 flex items-center gap-1"><Phone className="h-3 w-3" /> {s.phone}</p>}
                       </div>
                       <p className="font-bold text-amber-700">{formatCurrency(s.netPayable || 0)}</p>
@@ -574,6 +584,16 @@ const SuppliersPage = () => {
                 placeholder="e.g. Net 30"
                 className="w-full border-2 border-lime-300 rounded px-3 py-2"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="edit-isActive"
+                checked={editForm.isActive}
+                onChange={e => setEditForm(f => ({ ...f, isActive: e.target.checked }))}
+                className="rounded border-2 border-primary-300"
+              />
+              <label htmlFor="edit-isActive" className="text-sm font-medium text-primary-800">Active (supplier visible and can receive payments)</label>
             </div>
             <div className="flex gap-2 justify-end pt-2">
               <button

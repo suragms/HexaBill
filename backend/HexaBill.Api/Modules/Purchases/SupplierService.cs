@@ -196,7 +196,7 @@ namespace HexaBill.Api.Modules.Purchases
                 var nameNorm = (supplierName ?? "").Trim().ToLowerInvariant();
                 var supplier = await _context.Suppliers
                     .Where(s => s.TenantId == tenantId && s.NormalizedName == nameNorm)
-                    .Select(s => new { s.Id, s.Phone, s.CreditLimit })
+                    .Select(s => new { s.Id, s.Phone, s.CreditLimit, s.IsActive })
                     .FirstOrDefaultAsync();
 
                 summaries.Add(new SupplierSummaryDto
@@ -211,7 +211,8 @@ namespace HexaBill.Api.Modules.Purchases
                     InvoiceCount = invoiceCount,
                     Overdue = 0, // TODO: Add due date to Purchase for overdue calculation
                     Phone = supplier?.Phone,
-                    CreditLimit = supplier?.CreditLimit ?? 0
+                    CreditLimit = supplier?.CreditLimit ?? 0,
+                    IsActive = supplier?.IsActive ?? true
                 });
             }
 
@@ -272,7 +273,7 @@ namespace HexaBill.Api.Modules.Purchases
                 .ToListAsync();
 
             var fromSuppliers = await _context.Suppliers
-                .Where(s => s.TenantId == tenantId && s.IsActive && s.Name.ToLower().Contains(term))
+                .Where(s => s.TenantId == tenantId && s.Name.ToLower().Contains(term))
                 .Select(s => s.Name)
                 .Take(limit)
                 .ToListAsync();
@@ -544,6 +545,7 @@ namespace HexaBill.Api.Modules.Purchases
         public int InvoiceCount { get; set; }
         public decimal Overdue { get; set; }
         public decimal CreditLimit { get; set; }
+        public bool IsActive { get; set; } = true;
     }
 }
 
