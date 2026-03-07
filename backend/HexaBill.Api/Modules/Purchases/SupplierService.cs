@@ -456,7 +456,51 @@ namespace HexaBill.Api.Modules.Purchases
             var supplier = await _context.Suppliers
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.NormalizedName == currentNormalized);
             if (supplier == null)
+            {
+                // Name-only supplier (from purchase entry): create directory row so Edit/Save works without "not found"
+                var referencedByPurchases = await _context.Purchases
+                    .AnyAsync(p => p.TenantId == tenantId && p.SupplierName.ToLower() == currentNormalized);
+                var referencedByPayments = await _context.SupplierPayments
+                    .AnyAsync(sp => sp.TenantId == tenantId && sp.SupplierName.ToLower() == currentNormalized);
+                if (referencedByPurchases || referencedByPayments)
+                {
+                    var newName = (request.Name ?? currentName).Trim();
+                    if (string.IsNullOrWhiteSpace(newName)) newName = currentName;
+                    var newNorm = newName.ToLowerInvariant();
+                    var exists = await _context.Suppliers
+                        .AnyAsync(s => s.TenantId == tenantId && s.NormalizedName == newNorm);
+                    if (exists)
+                        throw new ArgumentException($"A supplier with the name \"{newName}\" already exists.", nameof(request));
+                    supplier = new Supplier
+                    {
+                        TenantId = tenantId,
+                        Name = newName,
+                        NormalizedName = newNorm,
+                        Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone!.Trim(),
+                        Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email!.Trim(),
+                        Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address!.Trim(),
+                        CreditLimit = request.CreditLimit ?? 0,
+                        PaymentTerms = string.IsNullOrWhiteSpace(request.PaymentTerms) ? null : request.PaymentTerms!.Trim(),
+                        IsActive = request.IsActive ?? true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    _context.Suppliers.Add(supplier);
+                    await _context.SaveChangesAsync();
+                    return new SupplierDto
+                    {
+                        Id = supplier.Id,
+                        Name = supplier.Name,
+                        Phone = supplier.Phone,
+                        Email = supplier.Email,
+                        Address = supplier.Address,
+                        CreditLimit = supplier.CreditLimit,
+                        PaymentTerms = supplier.PaymentTerms,
+                        IsActive = supplier.IsActive
+                    };
+                }
                 throw new ArgumentException($"Supplier \"{currentName}\" not found.", nameof(supplierName));
+            }
 
             var newName = (request.Name ?? supplier.Name).Trim();
             if (string.IsNullOrWhiteSpace(newName))
@@ -506,7 +550,25 @@ namespace HexaBill.Api.Modules.Purchases
             var supplier = await _context.Suppliers
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.NormalizedName == normalized);
             if (supplier == null)
-                throw new ArgumentException($"Supplier \"{name}\" not found.", nameof(supplierName));
+            {
+                // Name-only supplier: create directory row as deactivated so "Deactivate" doesn't throw
+                var referenced = await _context.Purchases.AnyAsync(p => p.TenantId == tenantId && p.SupplierName.ToLower() == normalized)
+                    || await _context.SupplierPayments.AnyAsync(sp => sp.TenantId == tenantId && sp.SupplierName.ToLower() == normalized);
+                if (!referenced)
+                    throw new ArgumentException($"Supplier \"{name}\" not found.", nameof(supplierName));
+                supplier = new Supplier
+                {
+                    TenantId = tenantId,
+                    Name = name,
+                    NormalizedName = normalized,
+                    IsActive = false,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _context.Suppliers.Add(supplier);
+                await _context.SaveChangesAsync();
+                return;
+            }
             supplier.IsActive = false;
             supplier.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
