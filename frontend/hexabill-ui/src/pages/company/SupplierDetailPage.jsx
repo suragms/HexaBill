@@ -63,12 +63,13 @@ const SupplierDetailPage = () => {
   const [showDeleteVendorDiscountConfirm, setShowDeleteVendorDiscountConfirm] = useState(false)
   const [deleteVendorDiscountId, setDeleteVendorDiscountId] = useState(null)
 
-  const canSeeVendorDiscounts = isAdminOrOwner(user) && supplierInfo?.id
+  const canUseVendorDiscounts = isAdminOrOwner(user) && supplierInfo?.id
+  const showVendorDiscountsTab = isAdminOrOwner(user) && supplierInfo != null
   const tabs = useMemo(() => {
     const t = [...baseTabs]
-    if (canSeeVendorDiscounts) t.push({ id: 'vendor-discounts', label: 'Vendor Discounts', icon: Tag })
+    if (showVendorDiscountsTab) t.push({ id: 'vendor-discounts', label: 'Vendor Discounts', icon: Tag })
     return t
-  }, [canSeeVendorDiscounts])
+  }, [showVendorDiscountsTab])
 
   useEffect(() => {
     if (supplierName) {
@@ -319,7 +320,7 @@ const SupplierDetailPage = () => {
       <div className="mb-6">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-bold text-primary-900">Supplier Ledger: {supplierName}</h1>
-          {supplierInfo && supplierInfo.isActive === false && (
+          {supplierInfo?.id && supplierInfo.isActive === false && (
             <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800 border border-amber-300">Deactivated</span>
           )}
         </div>
@@ -661,7 +662,7 @@ const SupplierDetailPage = () => {
 
           {activeTab === 'vendor-discounts' && (
             <div className="bg-white rounded-lg border-2 border-lime-300 overflow-hidden">
-              {!canSeeVendorDiscounts ? (
+              {!canUseVendorDiscounts ? (
                 <div className="p-6 text-center">
                   {!supplierInfo?.id ? (
                     <p className="text-primary-600">Add this supplier to the directory to track vendor discounts.</p>
