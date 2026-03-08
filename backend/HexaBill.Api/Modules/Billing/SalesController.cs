@@ -24,12 +24,14 @@ namespace HexaBill.Api.Modules.Billing
         private readonly ISaleService _saleService;
         private readonly IRouteScopeService _routeScopeService;
         private readonly AppDbContext _context;
+        private readonly IEmailService _emailService;
 
-        public SalesController(ISaleService saleService, IRouteScopeService routeScopeService, AppDbContext context)
+        public SalesController(ISaleService saleService, IRouteScopeService routeScopeService, AppDbContext context, IEmailService emailService)
         {
             _saleService = saleService;
             _routeScopeService = routeScopeService;
             _context = context;
+            _emailService = emailService;
         }
 
         [HttpGet]
@@ -337,7 +339,7 @@ namespace HexaBill.Api.Modules.Billing
         }
 
         [HttpGet("{id}/pdf")]
-        [AllowAnonymous]  // Allow PDF generation and printing without authentication
+        [Authorize(Roles = "Admin,Owner,Staff")]  // CRITICAL: Require auth - unauthenticated users must not download invoices
         public async Task<ActionResult> GetInvoicePdf(int id)
         {
             try
@@ -728,8 +730,10 @@ namespace HexaBill.Api.Modules.Billing
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(request?.Email))
+                    return BadRequest(new ApiResponse<object> { Success = false, Message = "Recipient email is required" });
+
                 var tenantId = CurrentTenantId; // CRITICAL: Get from JWT
-                // Get sale details
                 var sale = await _saleService.GetSaleByIdAsync(id, tenantId);
                 if (sale == null)
                 {
@@ -740,17 +744,30 @@ namespace HexaBill.Api.Modules.Billing
                     });
                 }
 
-                // Generate PDF
                 var pdfBytes = await _saleService.GenerateInvoicePdfAsync(id, tenantId);
-                
-                // TODO: Implement email sending service
-                // For now, return success message indicating feature is ready
-                // In production, integrate with email service (SendGrid, SMTP, etc.)
-                
+                var subject = $"Invoice {sale.InvoiceNo} - HexaBill";
+                var body = $@"<html><body>
+<p>Dear Customer,</p>
+<p>Please find attached your invoice <strong>{sale.InvoiceNo}</strong> dated {sale.InvoiceDate:dd-MMM-yyyy}.</p>
+<p>Total amount: AED {sale.GrandTotal:N2}</p>
+<p>Best regards,<br/>HexaBill</p>
+</body></html>";
+
+                if (!_emailService.IsConfigured)
+                {
+                    return Ok(new ApiResponse<object>
+                    {
+                        Success = true,
+                        Message = "Invoice PDF generated. Configure SMTP settings (Settings > Email) to send invoices by email."
+                    });
+                }
+
+                await _emailService.SendAsync(request.Email, subject, body, pdfBytes, $"Invoice-{sale.InvoiceNo}.pdf");
+
                 return Ok(new ApiResponse<object>
                 {
                     Success = true,
-                    Message = $"Invoice PDF generated. Email sending feature requires SMTP configuration in appsettings.json"
+                    Message = $"Invoice {sale.InvoiceNo} sent successfully to {request.Email}"
                 });
             }
             catch (InvalidOperationException ex)

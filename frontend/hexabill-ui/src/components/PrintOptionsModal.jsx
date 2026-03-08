@@ -1,9 +1,7 @@
 import { useState } from 'react'
-import { X, Printer, FileText, Settings } from 'lucide-react'
+import { X, Printer, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getApiBaseUrl } from '../services/apiConfig'
-
-const API_BASE_URL = getApiBaseUrl()
+import { salesAPI } from '../services'
 
 const PrintOptionsModal = ({ saleId, invoiceNo, onClose, onPrint }) => {
   const [format, setFormat] = useState('A4')
@@ -13,27 +11,24 @@ const PrintOptionsModal = ({ saleId, invoiceNo, onClose, onPrint }) => {
 
   const handlePrint = async () => {
     try {
-      if (format === 'A4') {
-        // Open PDF in new window for browser print dialog
-        const pdfUrl = `${API_BASE_URL}/sales/${saleId}/pdf`
-        const printWindow = window.open(pdfUrl, '_blank')
-        if (printWindow) {
-          printWindow.onload = () => {
-            setTimeout(() => {
-              printWindow.print()
-            }, 250)
-          }
-          toast.success('Invoice opened for printing')
-        } else {
-          toast.error('Please allow pop-ups for this site to print')
+      // Fetch PDF via authenticated api (required after removing AllowAnonymous from backend)
+      const pdfOptions = format === 'A4' ? {} : { format: 'thermal', width: format === 'thermal58' ? 58 : 80 }
+      const blob = await salesAPI.getInvoicePdf(saleId, pdfOptions)
+      const blobUrl = URL.createObjectURL(blob)
+      const printWindow = window.open(blobUrl, '_blank')
+      if (printWindow) {
+        printWindow.onload = () => {
+          setTimeout(() => {
+            if (format === 'A4') printWindow.print()
+            URL.revokeObjectURL(blobUrl)
+          }, 250)
         }
+        toast.success(format === 'A4' ? 'Invoice opened for printing' : 'Thermal format opened')
       } else {
-        // Thermal printer - download or open PDF
-        const pdfUrl = `${API_BASE_URL}/sales/${saleId}/pdf?format=thermal&width=${format === 'thermal58' ? '58' : '80'}`
-        window.open(pdfUrl, '_blank')
-        toast.success('Thermal format opened')
+        URL.revokeObjectURL(blobUrl)
+        toast.error('Please allow pop-ups for this site to print')
       }
-      
+
       if (onPrint) onPrint()
       onClose()
     } catch (error) {

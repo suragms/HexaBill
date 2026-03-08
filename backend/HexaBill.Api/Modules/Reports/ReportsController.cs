@@ -12,6 +12,7 @@ using HexaBill.Api.Modules.Billing;
 using HexaBill.Api.Modules.Branches;
 using HexaBill.Api.Shared.Validation;
 using Npgsql;
+using OfficeOpenXml;
 
 namespace HexaBill.Api.Modules.Reports
 {
@@ -21,13 +22,15 @@ namespace HexaBill.Api.Modules.Reports
     public class ReportsController : TenantScopedController // MULTI-TENANT: Owner-scoped reports
     {
         private readonly IReportService _reportService;
+        private readonly IVatReturnReportService _vatReturnReportService;
         private readonly AppDbContext _context;
         private readonly ITimeZoneService _timeZoneService;
         private readonly IBranchService _branchService;
 
-        public ReportsController(IReportService reportService, AppDbContext context, ITimeZoneService timeZoneService, IBranchService branchService)
+        public ReportsController(IReportService reportService, IVatReturnReportService vatReturnReportService, AppDbContext context, ITimeZoneService timeZoneService, IBranchService branchService)
         {
             _reportService = reportService;
+            _vatReturnReportService = vatReturnReportService;
             _context = context;
             _timeZoneService = timeZoneService;
             _branchService = branchService;
@@ -37,6 +40,80 @@ namespace HexaBill.Api.Modules.Reports
         private bool IsStaffOnly()
         {
             return User.IsInRole("Staff") && !User.IsInRole("Admin");
+        }
+
+        [HttpGet("vat-return")]
+        [Authorize(Roles = "Admin,Owner")]
+        public async Task<ActionResult<ApiResponse<VatReturnDto>>> GetVatReturn(
+            [FromQuery] int quarter = 1,
+            [FromQuery] int year = 2026)
+        {
+            try
+            {
+                var tenantId = CurrentTenantId;
+                if (tenantId <= 0 && !IsSystemAdmin) return Forbid();
+                if (quarter < 1 || quarter > 4 || year < 2020 || year > 2030)
+                    return BadRequest(new ApiResponse<VatReturnDto> { Success = false, Message = "Invalid quarter (1-4) or year" });
+                var result = await _vatReturnReportService.GetVatReturnAsync(tenantId, quarter, year);
+                return Ok(new ApiResponse<VatReturnDto>
+                {
+                    Success = true,
+                    Message = "VAT return retrieved successfully",
+                    Data = result
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ApiResponse<VatReturnDto>
+                {
+                    Success = false,
+                    Message = "An error occurred",
+                    Errors = new List<string> { ex.Message }
+                });
+            }
+        }
+
+        [HttpGet("vat-return/export")]
+        [Authorize(Roles = "Admin,Owner")]
+        public async Task<IActionResult> ExportVatReturnExcel(
+            [FromQuery] int quarter = 1,
+            [FromQuery] int year = 2026,
+            [FromQuery] string format = "xlsx")
+        {
+            try
+            {
+                var tenantId = CurrentTenantId;
+                if (tenantId <= 0 && !IsSystemAdmin) return Forbid();
+                if (quarter < 1 || quarter > 4 || year < 2020 || year > 2030)
+                    return BadRequest("Invalid quarter (1-4) or year");
+                var data = await _vatReturnReportService.GetVatReturnAsync(tenantId, quarter, year);
+
+                ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+                using var package = new ExcelPackage();
+                var sheet = package.Workbook.Worksheets.Add("VAT Return");
+                sheet.Cells[1, 1].Value = $"FTA VAT 201 Return - Q{quarter} {year}";
+                sheet.Cells[1, 1, 1, 2].Merge = true;
+                sheet.Cells[2, 1].Value = "Period"; sheet.Cells[2, 2].Value = $"{data.FromDate:dd-MMM-yyyy} to {data.ToDate:dd-MMM-yyyy}";
+                sheet.Cells[3, 1].Value = "Box"; sheet.Cells[3, 2].Value = "Amount (AED)";
+                int row = 4;
+                sheet.Cells[row, 1].Value = "Box 1: Taxable supplies"; sheet.Cells[row, 2].Value = data.Box1_TaxableSupplies; row++;
+                sheet.Cells[row, 1].Value = "Box 2: Zero-rated supplies"; sheet.Cells[row, 2].Value = data.Box2_ZeroRatedSupplies; row++;
+                sheet.Cells[row, 1].Value = "Box 3: Exempt supplies"; sheet.Cells[row, 2].Value = data.Box3_ExemptSupplies; row++;
+                sheet.Cells[row, 1].Value = "Box 4: Tax on taxable supplies"; sheet.Cells[row, 2].Value = data.Box4_TaxOnTaxableSupplies; row++;
+                sheet.Cells[row, 1].Value = "Box 5: Reverse charge"; sheet.Cells[row, 2].Value = data.Box5_ReverseCharge; row++;
+                sheet.Cells[row, 1].Value = "Box 6: Total due"; sheet.Cells[row, 2].Value = data.Box6_TotalDue; row++;
+                sheet.Cells[row, 1].Value = "Box 7: Tax not creditable"; sheet.Cells[row, 2].Value = data.Box7_TaxNotCreditable; row++;
+                sheet.Cells[row, 1].Value = "Box 8: Recoverable tax"; sheet.Cells[row, 2].Value = data.Box8_RecoverableTax; row++;
+                sheet.Cells[row, 1].Value = "Box 9: Net VAT due"; sheet.Cells[row, 2].Value = data.Box9_NetVatDue;
+                sheet.Cells["A1:B13"].AutoFitColumns();
+                var bytes = package.GetAsByteArray();
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    $"VAT-Return-Q{quarter}-{year}.xlsx");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ex.Message);
+            }
         }
 
         [HttpGet("staff-performance")]

@@ -39,6 +39,18 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Sentry error tracking (optional: set SENTRY_DSN env var for production)
+var sentryDsn = Environment.GetEnvironmentVariable("SENTRY_DSN");
+if (!string.IsNullOrWhiteSpace(sentryDsn))
+{
+    builder.WebHost.UseSentry(options =>
+    {
+        options.Dsn = sentryDsn;
+        options.TracesSampleRate = 0.1;
+        options.Debug = false;
+    });
+}
+
 // Configure Serilog for production error tracking
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -181,11 +193,11 @@ else
     }
 }
 
-// Production: ensure PostgreSQL pool supports ~100 concurrent clients (Npgsql default is 100; 150 gives headroom)
+// Production: PostgreSQL 1GB plan allows ~97-100 connections. Use 90 to stay under limit and avoid connection exhaustion.
 if (usePostgreSQL && !string.IsNullOrWhiteSpace(connectionString) && !connectionString.Contains("Maximum Pool Size", StringComparison.OrdinalIgnoreCase))
 {
-    connectionString += ";Maximum Pool Size=150";
-    logger.LogInformation("✅ PostgreSQL connection pool set to 150 for production concurrency");
+    connectionString += ";Maximum Pool Size=90";
+    logger.LogInformation("✅ PostgreSQL connection pool set to 90 for production concurrency");
 }
 
 if (string.IsNullOrWhiteSpace(connectionString))
@@ -280,6 +292,9 @@ builder.Services.AddScoped<HexaBill.Api.Modules.Branches.IRouteService, HexaBill
 builder.Services.AddScoped<HexaBill.Api.Shared.Services.IRouteScopeService, HexaBill.Api.Shared.Services.RouteScopeService>();
 builder.Services.AddScoped<HexaBill.Api.Shared.Services.ISalesSchemaService, HexaBill.Api.Shared.Services.SalesSchemaService>();
 builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IVatReturnReportService, VatReturnReportService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IRecurringInvoiceService, RecurringInvoiceService>();
 builder.Services.AddScoped<IPdfService, PdfService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<IComprehensiveBackupService, ComprehensiveBackupService>();
@@ -349,6 +364,7 @@ builder.Services.AddHostedService<DailyBackupScheduler>();
 builder.Services.AddHostedService<AlertCheckBackgroundService>();
 builder.Services.AddHostedService<HexaBill.Api.BackgroundJobs.TrialExpiryCheckJob>();
 builder.Services.AddHostedService<HexaBill.Api.BackgroundJobs.BalanceReconciliationJob>();
+builder.Services.AddHostedService<HexaBill.Api.BackgroundJobs.DailyRecurringInvoiceJob>();
 // Data integrity validation service - temporarily disabled
 // builder.Services.AddHostedService<HexaBill.Api.Shared.Middleware.DataIntegrityValidationService>();
 
@@ -537,6 +553,48 @@ using (var scope = app.Services.CreateScope())
                 ");
             }
             catch (Exception ex) when (ex.Message?.Contains("already exists", StringComparison.OrdinalIgnoreCase) == true || ex.Message?.Contains("42P01", StringComparison.Ordinal) == true) { /* tables may already exist */ }
+            // RecurringInvoices (for automated invoice generation)
+            try
+            {
+                ctx.Database.ExecuteSqlRaw(@"
+                    CREATE TABLE IF NOT EXISTS ""RecurringInvoices"" (
+                        ""Id"" serial PRIMARY KEY,
+                        ""TenantId"" integer NOT NULL,
+                        ""CustomerId"" integer NOT NULL,
+                        ""BranchId"" integer NULL,
+                        ""RouteId"" integer NULL,
+                        ""Frequency"" integer NOT NULL,
+                        ""DayOfRecurrence"" integer NULL,
+                        ""StartDate"" timestamp with time zone NOT NULL,
+                        ""EndDate"" timestamp with time zone NULL,
+                        ""NextRunDate"" timestamp with time zone NOT NULL,
+                        ""LastRunDate"" timestamp with time zone NULL,
+                        ""IsActive"" boolean NOT NULL DEFAULT true,
+                        ""Notes"" character varying(500) NULL,
+                        ""CreatedBy"" integer NOT NULL,
+                        ""CreatedAt"" timestamp with time zone NOT NULL,
+                        ""UpdatedAt"" timestamp with time zone NOT NULL,
+                        CONSTRAINT ""FK_RecurringInvoices_Tenants_TenantId"" FOREIGN KEY (""TenantId"") REFERENCES ""Tenants""(""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_RecurringInvoices_Customers_CustomerId"" FOREIGN KEY (""CustomerId"") REFERENCES ""Customers""(""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_RecurringInvoices_Branches_BranchId"" FOREIGN KEY (""BranchId"") REFERENCES ""Branches""(""Id""),
+                        CONSTRAINT ""FK_RecurringInvoices_Routes_RouteId"" FOREIGN KEY (""RouteId"") REFERENCES ""Routes""(""Id""),
+                        CONSTRAINT ""FK_RecurringInvoices_Users_CreatedBy"" FOREIGN KEY (""CreatedBy"") REFERENCES ""Users""(""Id"")
+                    );
+                    CREATE TABLE IF NOT EXISTS ""RecurringInvoiceItems"" (
+                        ""Id"" serial PRIMARY KEY,
+                        ""RecurringInvoiceId"" integer NOT NULL,
+                        ""ProductId"" integer NOT NULL,
+                        ""Qty"" numeric(18,2) NOT NULL,
+                        ""UnitPrice"" numeric(18,2) NOT NULL,
+                        ""UnitType"" character varying(20) NOT NULL DEFAULT 'CRTN',
+                        CONSTRAINT ""FK_RecurringInvoiceItems_RecurringInvoices_RecurringInvoiceId"" FOREIGN KEY (""RecurringInvoiceId"") REFERENCES ""RecurringInvoices""(""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_RecurringInvoiceItems_Products_ProductId"" FOREIGN KEY (""ProductId"") REFERENCES ""Products""(""Id"")
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_RecurringInvoices_TenantId"" ON ""RecurringInvoices"" (""TenantId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_RecurringInvoices_NextRunDate"" ON ""RecurringInvoices"" (""NextRunDate"");
+                ");
+            }
+            catch (Exception ex) when (ex.Message?.Contains("already exists", StringComparison.OrdinalIgnoreCase) == true) { /* tables may already exist */ }
         }
         catch (Exception ex)
         {

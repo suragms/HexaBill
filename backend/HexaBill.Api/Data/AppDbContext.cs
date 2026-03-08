@@ -74,6 +74,8 @@ namespace HexaBill.Api.Data
         public DbSet<CustomerVisit> CustomerVisits { get; set; }
         public DbSet<HeldInvoice> HeldInvoices { get; set; }
         public DbSet<UserSession> UserSessions { get; set; }
+        public DbSet<RecurringInvoice> RecurringInvoices { get; set; }
+        public DbSet<RecurringInvoiceItem> RecurringInvoiceItems { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

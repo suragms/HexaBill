@@ -665,6 +665,21 @@ namespace HexaBill.Api.Modules.Purchases
                 using var transaction = await _context.Database.BeginTransactionAsync();
                 try
                 {
+                // CRITICAL: Validate stock before reversing - prevent negative stock
+                foreach (var item in purchase.Items)
+                {
+                    var product = await _context.Products
+                        .FirstOrDefaultAsync(p => p.Id == item.ProductId && p.TenantId == tenantId);
+                    if (product != null)
+                    {
+                        var conv = product.ConversionToBase > 0 ? product.ConversionToBase : 1m;
+                        var baseQty = item.Qty * conv;
+                        if (product.StockQty < baseQty)
+                            throw new InvalidOperationException(
+                                $"Cannot delete purchase: Product '{product.NameEn}' would have negative stock (current: {product.StockQty}, removing: {baseQty}). Adjust sales or returns first.");
+                    }
+                }
+
                 // CRITICAL: Reverse all stock changes before deleting (guard ConversionToBase <= 0)
                 foreach (var item in purchase.Items)
                 {

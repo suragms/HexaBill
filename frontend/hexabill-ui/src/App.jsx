@@ -18,6 +18,7 @@ import ReportsPage from './pages/company/ReportsPage'
 import WorksheetPage from './pages/company/WorksheetPage'
 import SalesLedgerPage from './pages/company/SalesLedgerPage'
 import BillingHistoryPage from './pages/company/BillingHistoryPage'
+import RecurringInvoicesPage from './pages/company/RecurringInvoicesPage'
 import SettingsPage from './pages/company/SettingsPage'
 import AuditLogPage from './pages/company/AuditLogPage'
 import UsersPage from './pages/company/UsersPage'
@@ -205,6 +206,7 @@ function App() {
               <Route path="/expenses" element={<ExpensesPage />} />
               <Route path="/sales-ledger" element={<SalesLedgerPage />} />
               <Route path="/billing-history" element={<BillingHistoryPage />} />
+              <Route path="/recurring-invoices" element={isStaffOnly ? <Navigate to="/dashboard" replace /> : <RecurringInvoicesPage />} />
               <Route path="/returns/create" element={<ReturnCreatePage />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/reports/outstanding" element={<ReportsPage />} />
@@ -240,6 +242,7 @@ function App() {
             <Route path="/suppliers/:name" element={<Navigate to="/superadmin/dashboard" replace />} />
             <Route path="/reports" element={<Navigate to="/superadmin/dashboard" replace />} />
             <Route path="/billing-history" element={<Navigate to="/superadmin/dashboard" replace />} />
+            <Route path="/recurring-invoices" element={<Navigate to="/superadmin/dashboard" replace />} />
             <Route path="/audit" element={<Navigate to="/superadmin/dashboard" replace />} />
             <Route path="/worksheet" element={<Navigate to="/superadmin/dashboard" replace />} />
             <Route path="/branches" element={<Navigate to="/superadmin/dashboard" replace />} />

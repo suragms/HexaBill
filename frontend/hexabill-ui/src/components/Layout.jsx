@@ -197,7 +197,10 @@ const Layout = () => {
     { name: 'POS', href: '/pos', icon: ShoppingCart },
     { name: 'Customer Ledger', href: '/ledger', icon: BookOpen },
     { name: 'Sales Ledger', href: '/sales-ledger', icon: FileText },
-    ...(isAdminOrOwner(user) ? [{ name: 'Billing History', href: '/billing-history', icon: History }] : []),
+    ...(isAdminOrOwner(user) ? [
+        { name: 'Billing History', href: '/billing-history', icon: History },
+        { name: 'Recurring Invoices', href: '/recurring-invoices', icon: FileText }
+      ] : []),
     { name: 'Expenses', href: '/expenses', icon: Receipt },
     ...(isAdminOrOwner(user) ? [{ name: 'Reports', href: '/reports', icon: BarChart3 }] : []),
     ...(isOwner(user) ? [{ name: 'Worksheet', href: '/worksheet', icon: FileText }] : []),

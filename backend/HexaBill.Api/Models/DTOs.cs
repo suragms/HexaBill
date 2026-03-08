@@ -1473,5 +1473,32 @@ namespace HexaBill.Api.Models
         public decimal RefundsPaid { get; set; }
         public decimal NetCashIn { get; set; }
     }
+
+    /// <summary>FTA VAT 201 Return - UAE quarterly VAT filing format.</summary>
+    public class VatReturnDto
+    {
+        public int Quarter { get; set; }
+        public int Year { get; set; }
+        public DateTime FromDate { get; set; }
+        public DateTime ToDate { get; set; }
+        /// <summary>Box 1: Value of standard-rated supplies (taxable).</summary>
+        public decimal Box1_TaxableSupplies { get; set; }
+        /// <summary>Box 2: Value of zero-rated supplies.</summary>
+        public decimal Box2_ZeroRatedSupplies { get; set; }
+        /// <summary>Box 3: Value of exempt supplies.</summary>
+        public decimal Box3_ExemptSupplies { get; set; }
+        /// <summary>Box 4: Tax amount on standard-rated supplies (output VAT).</summary>
+        public decimal Box4_TaxOnTaxableSupplies { get; set; }
+        /// <summary>Box 5: Value of supplies subject to reverse charge.</summary>
+        public decimal Box5_ReverseCharge { get; set; }
+        /// <summary>Box 6: Total value of supplies due to authority (Box 4 + Box 5).</summary>
+        public decimal Box6_TotalDue { get; set; }
+        /// <summary>Box 7: Tax on goods/services not entitled to credit.</summary>
+        public decimal Box7_TaxNotCreditable { get; set; }
+        /// <summary>Box 8: Total recoverable tax (input VAT).</summary>
+        public decimal Box8_RecoverableTax { get; set; }
+        /// <summary>Box 9: Net VAT due to authority (Box 6 - Box 8).</summary>
+        public decimal Box9_NetVatDue { get; set; }
+    }
 }
 

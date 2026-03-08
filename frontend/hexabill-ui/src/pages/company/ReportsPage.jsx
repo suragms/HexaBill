@@ -94,6 +94,10 @@ const ReportsPage = () => {
   const [agingAsOfDate, setAgingAsOfDate] = useState(new Date().toISOString().split('T')[0])
   // FIX: Add days overdue filter for Outstanding Bills
   const [outstandingDaysFilter, setOutstandingDaysFilter] = useState('') // '', '30', '60', '90'
+  // VAT Return: quarter (1-4) and year
+  const now = new Date()
+  const [vatReturnQuarter, setVatReturnQuarter] = useState(Math.ceil((now.getMonth() + 1) / 3))
+  const [vatReturnYear, setVatReturnYear] = useState(now.getFullYear())
   const [filters, setFilters] = useState({
     branch: '',
     route: '',
@@ -142,6 +146,7 @@ const ReportsPage = () => {
     damageReport: [],
     creditNotesReport: [],
     netSalesReport: null, // { totalSales, totalReturns, netSales } from summary
+    vatReturn: null // FTA VAT 201 return for UAE filing
   })
   const [returnsFeatureFlags, setReturnsFeatureFlags] = useState({ returnsEnabled: true, returnsRequireApproval: false })
   const [loadingSales, setLoadingSales] = useState(false)
@@ -205,7 +210,8 @@ const ReportsPage = () => {
     { id: 'collections', name: 'Collections (with phone)', shortLabel: 'Collections', icon: Phone },
     { id: 'cheque', name: 'Cheque Report', shortLabel: 'Cheque', icon: ShieldCheck, adminOnly: true },
     { id: 'staff', name: 'Staff Performance', shortLabel: 'Staff', icon: Users, adminOnly: true },
-    { id: 'ai', name: 'AI Insights', shortLabel: 'AI', icon: Eye, adminOnly: true }
+    { id: 'ai', name: 'AI Insights', shortLabel: 'AI', icon: Eye, adminOnly: true },
+    { id: 'vat-return', name: 'VAT Return', shortLabel: 'VAT Return', icon: FileText, adminOnly: true }
   ].filter(tab => !tab.adminOnly || isAdminOrOwner(user))
 
   // Update URL when tab changes (with debouncing to prevent request flood)
@@ -275,7 +281,9 @@ const ReportsPage = () => {
     const requestSignature = JSON.stringify({
       dateRange,
       activeTab,
-      filters: appliedFilters
+      filters: appliedFilters,
+      vatReturnQuarter: activeTab === 'vat-return' ? vatReturnQuarter : undefined,
+      vatReturnYear: activeTab === 'vat-return' ? vatReturnYear : undefined
     })
 
     // LAZY LOAD: Skip fetch if we already have this tab's data cached (same params)
@@ -951,6 +959,21 @@ const ReportsPage = () => {
         } catch (error) {
           console.error('Error loading AI suggestions:', error)
         }
+      } else if (activeTab === 'vat-return') {
+        try {
+          setLoading(true)
+          const vatResponse = await reportsAPI.getVatReturn(vatReturnQuarter, vatReturnYear)
+          if (vatResponse?.success && vatResponse?.data) {
+            setReportData(prev => ({ ...prev, vatReturn: vatResponse.data }))
+          } else {
+            setReportData(prev => ({ ...prev, vatReturn: null }))
+          }
+        } catch (error) {
+          if (!error?._handledByInterceptor) toast.error(error?.response?.data?.message || 'Failed to load VAT return')
+          setReportData(prev => ({ ...prev, vatReturn: null }))
+        } finally {
+          setLoading(false)
+        }
       }
       // Lazy load: mark this tab as loaded so we skip refetch when switching back
       tabDataCacheRef.current[tabCacheKey] = true
@@ -984,7 +1007,7 @@ const ReportsPage = () => {
       setLoading(false)
       isFetchingRef.current = false
     }
-  }, [dateRange, activeTab, appliedFilters])
+  }, [dateRange, activeTab, appliedFilters, vatReturnQuarter, vatReturnYear])
 
   // Store latest fetchReportData in ref to avoid dependency issues
   useEffect(() => {
@@ -3614,6 +3637,80 @@ const ReportsPage = () => {
                   <div className="flex items-center justify-center py-12 text-gray-500">
                     No AI suggestions available at this time
                   </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* VAT Return Tab (FTA VAT 201 - UAE) */}
+          {activeTab === 'vat-return' && (
+            <div className="space-y-6">
+              <div className="bg-white rounded-lg border border-neutral-200 p-6">
+                <div className="flex flex-wrap items-center gap-4 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900">FTA VAT 201 Return</h3>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <select
+                      value={vatReturnQuarter}
+                      onChange={(e) => { setVatReturnQuarter(parseInt(e.target.value, 10)); tabDataCacheRef.current = {}; fetchReportDataRef.current?.(true) }}
+                      className="border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                    >
+                      {[1, 2, 3, 4].map((q) => (
+                        <option key={q} value={q}>Q{q}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={vatReturnYear}
+                      onChange={(e) => { setVatReturnYear(parseInt(e.target.value, 10)); tabDataCacheRef.current = {}; fetchReportDataRef.current?.(true) }}
+                      className="border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                    >
+                      {[2024, 2025, 2026, 2027].map((y) => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const blob = await reportsAPI.exportVatReturn(vatReturnQuarter, vatReturnYear)
+                          const url = window.URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = `VAT-Return-Q${vatReturnQuarter}-${vatReturnYear}.xlsx`
+                          a.click()
+                          window.URL.revokeObjectURL(url)
+                          toast.success('Excel exported')
+                        } catch (err) {
+                          toast.error(err?.response?.data || 'Export failed')
+                        }
+                      }}
+                      className="px-4 py-2 bg-primary-600 text-white rounded-md text-sm hover:bg-primary-700"
+                    >
+                      Export Excel
+                    </button>
+                  </div>
+                </div>
+                {loading ? (
+                  <div className="py-12 text-center text-gray-500">Loading...</div>
+                ) : reportData.vatReturn ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-neutral-200">
+                      <thead>
+                        <tr><th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Box</th><th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Amount (AED)</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-t"><td className="px-4 py-2 text-sm">Box 1: Taxable supplies</td><td className="px-4 py-2 text-right text-sm font-medium">{formatCurrency(reportData.vatReturn.box1_TaxableSupplies)}</td></tr>
+                        <tr className="border-t"><td className="px-4 py-2 text-sm">Box 2: Zero-rated supplies</td><td className="px-4 py-2 text-right text-sm font-medium">{formatCurrency(reportData.vatReturn.box2_ZeroRatedSupplies)}</td></tr>
+                        <tr className="border-t"><td className="px-4 py-2 text-sm">Box 3: Exempt supplies</td><td className="px-4 py-2 text-right text-sm font-medium">{formatCurrency(reportData.vatReturn.box3_ExemptSupplies)}</td></tr>
+                        <tr className="border-t"><td className="px-4 py-2 text-sm">Box 4: Tax on taxable supplies</td><td className="px-4 py-2 text-right text-sm font-medium">{formatCurrency(reportData.vatReturn.box4_TaxOnTaxableSupplies)}</td></tr>
+                        <tr className="border-t"><td className="px-4 py-2 text-sm">Box 5: Reverse charge</td><td className="px-4 py-2 text-right text-sm font-medium">{formatCurrency(reportData.vatReturn.box5_ReverseCharge)}</td></tr>
+                        <tr className="border-t"><td className="px-4 py-2 text-sm">Box 6: Total due</td><td className="px-4 py-2 text-right text-sm font-medium">{formatCurrency(reportData.vatReturn.box6_TotalDue)}</td></tr>
+                        <tr className="border-t"><td className="px-4 py-2 text-sm">Box 7: Tax not creditable</td><td className="px-4 py-2 text-right text-sm font-medium">{formatCurrency(reportData.vatReturn.box7_TaxNotCreditable)}</td></tr>
+                        <tr className="border-t"><td className="px-4 py-2 text-sm">Box 8: Recoverable tax</td><td className="px-4 py-2 text-right text-sm font-medium">{formatCurrency(reportData.vatReturn.box8_RecoverableTax)}</td></tr>
+                        <tr className="border-t bg-primary-50"><td className="px-4 py-2 text-sm font-semibold">Box 9: Net VAT due</td><td className="px-4 py-2 text-right text-sm font-bold">{formatCurrency(reportData.vatReturn.box9_NetVatDue)}</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-gray-500">No VAT return data for selected period</div>
                 )}
               </div>
             </div>

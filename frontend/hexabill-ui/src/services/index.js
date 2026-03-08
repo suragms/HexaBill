@@ -194,10 +194,14 @@ export const salesAPI = {
     return response.data
   },
 
-  getInvoicePdf: async (id) => {
+  getInvoicePdf: async (id, options = {}) => {
     try {
+      const params = {}
+      if (options.format) params.format = options.format
+      if (options.width) params.width = options.width
       const response = await api.get(`/sales/${id}/pdf`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        ...(Object.keys(params).length > 0 && { params })
       })
 
       // Check content type from response headers
@@ -361,6 +365,21 @@ export const salesAPI = {
   // Fixes any discrepancies between Sale.PaymentStatus and Payments table
   reconcilePaymentStatus: async () => {
     const response = await api.post('/sales/reconcile-payment-status')
+    return response.data
+  },
+}
+
+export const recurringInvoicesAPI = {
+  getRecurringInvoices: async () => {
+    const response = await api.get('/recurring-invoices')
+    return response.data
+  },
+  createRecurringInvoice: async (data) => {
+    const response = await api.post('/recurring-invoices', data)
+    return response.data
+  },
+  deleteRecurringInvoice: async (id) => {
+    const response = await api.delete(`/recurring-invoices/${id}`)
     return response.data
   },
 }
@@ -795,6 +814,16 @@ export const reportsAPI = {
 
   getWorksheetReport: async (params = {}) => {
     const response = await api.get('/reports/worksheet', { params: normalizeDateParams(params) })
+    return response.data
+  },
+
+  getVatReturn: async (quarter = 1, year = 2026) => {
+    const response = await api.get('/reports/vat-return', { params: { quarter, year } })
+    return response.data
+  },
+
+  exportVatReturn: async (quarter = 1, year = 2026) => {
+    const response = await api.get('/reports/vat-return/export', { params: { quarter, year }, responseType: 'blob' })
     return response.data
   },
 
