@@ -514,11 +514,15 @@ const ExpensesPage = () => {
     return colors[category] || '#6B7280'
   }
 
-  const chartData = expenseSummary ? Object.entries(expenseSummary.categoryTotals).map(([category, amount]) => ({
-    name: category,
-    value: amount,
-    color: getCategoryColor(category)
-  })) : []
+  const CHART_PALETTE = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#84CC16', '#6366F1', '#06B6D4', '#EAB308']
+
+  const chartData = expenseSummary ? Object.entries(expenseSummary.categoryTotals)
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, amount], index) => ({
+      name: category,
+      value: amount,
+      color: CHART_PALETTE[index % CHART_PALETTE.length]
+    })) : []
 
   const handleCreateCategory = async (categoryName) => {
     if (!categoryName || !categoryName.trim()) {

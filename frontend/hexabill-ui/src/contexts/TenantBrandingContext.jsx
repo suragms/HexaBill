@@ -128,6 +128,20 @@ export const BrandingProvider = ({ children }) => {
     }
   }, [impersonatedTenantId, loadBranding])
 
+  // Refetch branding when app becomes visible again (after refresh, switching tabs, or coming back)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && typeof localStorage !== 'undefined' && localStorage.getItem('token')) {
+        const path = window.location.pathname || ''
+        if (path !== '/login' && path !== '/Admin26') {
+          loadBranding()
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [loadBranding])
+
   return (
     <BrandingContext.Provider value={{ ...branding, refresh: loadBranding }}>
       {children}

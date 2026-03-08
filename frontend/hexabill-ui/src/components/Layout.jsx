@@ -198,8 +198,7 @@ const Layout = () => {
     { name: 'Customer Ledger', href: '/ledger', icon: BookOpen },
     { name: 'Sales Ledger', href: '/sales-ledger', icon: FileText },
     ...(isAdminOrOwner(user) ? [
-        { name: 'Billing History', href: '/billing-history', icon: History },
-        { name: 'Recurring Invoices', href: '/recurring-invoices', icon: FileText }
+        { name: 'Billing History', href: '/billing-history', icon: History }
       ] : []),
     { name: 'Expenses', href: '/expenses', icon: Receipt },
     ...(isAdminOrOwner(user) ? [{ name: 'Reports', href: '/reports', icon: BarChart3 }] : []),

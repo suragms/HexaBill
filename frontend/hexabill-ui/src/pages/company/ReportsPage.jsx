@@ -3691,7 +3691,11 @@ const ReportsPage = () => {
                 {loading ? (
                   <div className="py-12 text-center text-gray-500">Loading...</div>
                 ) : reportData.vatReturn ? (
-                  <div className="overflow-x-auto">
+                  <div>
+                    {reportData.vatReturn.box1_TaxableSupplies === 0 && reportData.vatReturn.box4_TaxOnTaxableSupplies === 0 && reportData.vatReturn.box9_NetVatDue === 0 && (
+                      <p className="mb-4 text-amber-700 bg-amber-50 px-4 py-2 rounded-md text-sm">No VAT data for this period. Ensure you have sales in Q{vatReturnQuarter} {vatReturnYear}, or select a different quarter/year.</p>
+                    )}
+                    <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-neutral-200">
                       <thead>
                         <tr><th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Box</th><th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Amount (AED)</th></tr>
@@ -3709,8 +3713,9 @@ const ReportsPage = () => {
                       </tbody>
                     </table>
                   </div>
+                  </div>
                 ) : (
-                  <div className="py-12 text-center text-gray-500">No VAT return data for selected period</div>
+                  <p className="py-12 text-center text-gray-500">No VAT data for this period.</p>
                 )}
               </div>
             </div>
