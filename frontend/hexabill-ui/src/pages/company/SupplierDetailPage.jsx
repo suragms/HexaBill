@@ -1,14 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
-import { ArrowLeft, DollarSign, FileText, CreditCard, Calendar, Download, Banknote, Pencil, Tag, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, DollarSign, FileText, CreditCard, Calendar, Download, Banknote, Pencil, Trash2 } from 'lucide-react'
 import { suppliersAPI, purchasesAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
 import toast from 'react-hot-toast'
 import ConfirmDangerModal from '../../components/ConfirmDangerModal'
 import Modal from '../../components/Modal'
-import { useAuth } from '../../hooks/useAuth'
-import { isAdminOrOwner } from '../../utils/roles'
-
 const DISCOUNT_TYPES = [
   'Cash Discount',
   'Free Products',
@@ -16,7 +13,7 @@ const DISCOUNT_TYPES = [
   'Negotiated Discount'
 ]
 
-const baseTabs = [
+const tabs = [
   { id: 'summary', label: 'Summary', icon: FileText },
   { id: 'ledger', label: 'Ledger', icon: DollarSign },
   { id: 'purchases', label: 'Purchase History', icon: FileText },
@@ -26,7 +23,6 @@ const baseTabs = [
 const SupplierDetailPage = () => {
   const { name } = useParams()
   const [searchParams] = useSearchParams()
-  const { user } = useAuth()
   const supplierName = name ? decodeURIComponent(name) : ''
   const [activeTab, setActiveTab] = useState('summary')
   const [balance, setBalance] = useState(null)
@@ -54,30 +50,14 @@ const SupplierDetailPage = () => {
   const [deletePaymentId, setDeletePaymentId] = useState(null)
   const [deletingPayment, setDeletingPayment] = useState(false)
   const [supplierInfo, setSupplierInfo] = useState(null)
-  // Vendor Discounts (Owner/Admin only; not in ledger or reports)
-  const [vendorDiscounts, setVendorDiscounts] = useState([])
-  const [totalSavings, setTotalSavings] = useState(0)
-  const [showVendorDiscountModal, setShowVendorDiscountModal] = useState(false)
-  const [editingVendorDiscount, setEditingVendorDiscount] = useState(null)
-  const [vendorDiscountForm, setVendorDiscountForm] = useState({
-    purchaseId: '',
+  // Record entry type: Payment vs Ledger Credit (vendor discount)
+  const [recordEntryType, setRecordEntryType] = useState('payment')
+  const [ledgerCreditForm, setLedgerCreditForm] = useState({
     amount: '',
-    discountDate: new Date().toISOString().split('T')[0],
-    discountType: 'Cash Discount',
-    reason: ''
+    creditDate: new Date().toISOString().split('T')[0],
+    creditType: 'Cash Discount',
+    notes: ''
   })
-  const [savingVendorDiscount, setSavingVendorDiscount] = useState(false)
-  const [showDeleteVendorDiscountConfirm, setShowDeleteVendorDiscountConfirm] = useState(false)
-  const [deleteVendorDiscountId, setDeleteVendorDiscountId] = useState(null)
-  const [addingToDirectory, setAddingToDirectory] = useState(false)
-
-  const canUseVendorDiscounts = isAdminOrOwner(user) && supplierInfo?.id
-  const showVendorDiscountsTab = isAdminOrOwner(user) && supplierInfo != null
-  const tabs = useMemo(() => {
-    const t = [...baseTabs]
-    if (showVendorDiscountsTab) t.push({ id: 'vendor-discounts', label: 'Vendor Discounts', icon: Tag })
-    return t
-  }, [showVendorDiscountsTab])
 
   useEffect(() => {
     if (supplierName) {
@@ -99,18 +79,6 @@ const SupplierDetailPage = () => {
       } catch (_) {
         setSupplierInfo(null)
       }
-      // When on Vendor Discounts tab and supplier has no directory row, add them so Add button and form show without extra step
-      if (activeTab === 'vendor-discounts' && isAdminOrOwner(user) && supplierName && supplierData && !supplierData.id) {
-        try {
-          const createRes = await suppliersAPI.createSupplier({ name: supplierName.trim() })
-          if (createRes?.success && createRes?.data) {
-            supplierData = createRes.data
-            setSupplierInfo(createRes.data)
-          }
-        } catch (_) {
-          // keep existing supplierData; user can still use "Add supplier to directory" button if shown
-        }
-      }
       if (activeTab === 'summary' || activeTab === 'ledger' || activeTab === 'purchases') {
         const balanceRes = await suppliersAPI.getSupplierBalance(supplierName)
         if (balanceRes?.success && balanceRes?.data) setBalance(balanceRes.data)
@@ -130,21 +98,6 @@ const SupplierDetailPage = () => {
           const payments = (res.data || []).filter(t => (t.type || '').toLowerCase() === 'payment')
           setTransactions(payments)
         } else setTransactions([])
-      }
-      if (activeTab === 'vendor-discounts' && supplierData?.id) {
-        try {
-          const res = await suppliersAPI.getVendorDiscounts(supplierData.id)
-          if (res?.success && res?.data) {
-            setVendorDiscounts(res.data.items || [])
-            setTotalSavings(res.data.totalSavings ?? 0)
-          } else {
-            setVendorDiscounts([])
-            setTotalSavings(0)
-          }
-        } catch (_) {
-          setVendorDiscounts([])
-          setTotalSavings(0)
-        }
       }
     } catch (error) {
       console.error(error)
@@ -186,8 +139,46 @@ const SupplierDetailPage = () => {
     }
   }
 
+  const submitLedgerCredit = async () => {
+    const amount = parseFloat(ledgerCreditForm.amount)
+    if (!amount || amount <= 0) return
+    try {
+      setSaving(true)
+      const res = await suppliersAPI.createLedgerCredit(supplierName, {
+        amount,
+        creditDate: ledgerCreditForm.creditDate,
+        creditType: ledgerCreditForm.creditType,
+        notes: ledgerCreditForm.notes?.trim() || undefined
+      })
+      if (res?.success) {
+        toast.success('Ledger credit recorded. Outstanding updated.')
+        setShowRecordPayment(false)
+        setLedgerCreditForm({ amount: '', creditDate: new Date().toISOString().split('T')[0], creditType: 'Cash Discount', notes: '' })
+        setRecordEntryType('payment')
+        await loadData()
+      } else toast.error(res?.message || 'Failed to record ledger credit')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to record ledger credit')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleRecordPayment = async (e) => {
     e.preventDefault()
+    if (recordEntryType === 'ledgerCredit') {
+      const amount = parseFloat(ledgerCreditForm.amount)
+      if (!amount || amount <= 0) {
+        toast.error('Please enter a valid amount')
+        return
+      }
+      if (!ledgerCreditForm.creditType?.trim()) {
+        toast.error('Please select a vendor discount type')
+        return
+      }
+      await submitLedgerCredit()
+      return
+    }
     const amount = parseFloat(paymentForm.amount)
     if (!amount || amount <= 0) {
       toast.error('Please enter a valid amount')
@@ -284,111 +275,6 @@ const SupplierDetailPage = () => {
     }
   }
 
-  const handleAddSupplierToDirectory = async () => {
-    if (!supplierName?.trim()) return
-    setAddingToDirectory(true)
-    try {
-      const res = await suppliersAPI.createSupplier({ name: supplierName.trim() })
-      if (res?.success) {
-        toast.success('Supplier added to directory. You can now add vendor discounts below.')
-        await loadData()
-      } else {
-        toast.error(res?.message || 'Failed to add supplier to directory')
-      }
-    } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to add supplier to directory')
-    } finally {
-      setAddingToDirectory(false)
-    }
-  }
-
-  const openAddVendorDiscount = () => {
-    setEditingVendorDiscount(null)
-    setVendorDiscountForm({
-      purchaseId: '',
-      amount: '',
-      discountDate: new Date().toISOString().split('T')[0],
-      discountType: 'Cash Discount',
-      reason: ''
-    })
-    setShowVendorDiscountModal(true)
-  }
-
-  const openEditVendorDiscount = (row) => {
-    setEditingVendorDiscount(row)
-    setVendorDiscountForm({
-      purchaseId: row.purchaseId ?? '',
-      amount: String(row.amount ?? ''),
-      discountDate: row.discountDate ? new Date(row.discountDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-      discountType: row.discountType || 'Cash Discount',
-      reason: row.reason || ''
-    })
-    setShowVendorDiscountModal(true)
-  }
-
-  const saveVendorDiscount = async (e) => {
-    e.preventDefault()
-    if (!supplierInfo?.id) return
-    const amount = parseFloat(vendorDiscountForm.amount)
-    if (!amount || amount < 0.01) {
-      toast.error('Amount must be at least 0.01')
-      return
-    }
-    const payload = {
-      amount,
-      discountDate: vendorDiscountForm.discountDate,
-      discountType: vendorDiscountForm.discountType,
-      reason: vendorDiscountForm.reason?.trim() || ''
-    }
-    if (vendorDiscountForm.purchaseId) payload.purchaseId = parseInt(vendorDiscountForm.purchaseId, 10)
-    setSavingVendorDiscount(true)
-    try {
-      if (editingVendorDiscount) {
-        const res = await suppliersAPI.updateVendorDiscount(supplierInfo.id, editingVendorDiscount.id, payload)
-        if (res?.success) {
-          toast.success('Vendor discount updated')
-          setShowVendorDiscountModal(false)
-          loadData()
-        } else toast.error(res?.message || 'Update failed')
-      } else {
-        const res = await suppliersAPI.createVendorDiscount(supplierInfo.id, payload)
-        if (res?.success) {
-          toast.success('Vendor discount added')
-          setShowVendorDiscountModal(false)
-          loadData()
-        } else toast.error(res?.message || 'Create failed')
-      }
-    } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to save')
-    } finally {
-      setSavingVendorDiscount(false)
-    }
-  }
-
-  const confirmDeleteVendorDiscount = async () => {
-    if (!supplierInfo?.id || !deleteVendorDiscountId) return
-    try {
-      const res = await suppliersAPI.deleteVendorDiscount(supplierInfo.id, deleteVendorDiscountId)
-      if (res?.success) {
-        toast.success('Vendor discount deleted')
-        setShowDeleteVendorDiscountConfirm(false)
-        setDeleteVendorDiscountId(null)
-        loadData()
-      } else toast.error(res?.message || 'Delete failed')
-    } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to delete')
-    }
-  }
-
-  const getDiscountTypeBadgeClass = (type) => {
-    const t = (type || '').toLowerCase()
-    if (t.includes('cash')) return 'bg-green-100 text-green-800'
-    if (t.includes('free')) return 'bg-blue-100 text-blue-800'
-    if (t.includes('promo')) return 'bg-purple-100 text-purple-800'
-    if (t.includes('negotiated')) return 'bg-amber-100 text-amber-800'
-    return 'bg-neutral-100 text-neutral-700'
-  }
-
   if (!supplierName) {
     return (
       <div className="w-full p-4 sm:p-6">
@@ -473,85 +359,127 @@ const SupplierDetailPage = () => {
 
       {showRecordPayment && (
         <div className="mb-6 bg-lime-50 border-2 border-lime-300 rounded-lg p-4 w-full">
-          <h3 className="font-semibold text-primary-800 mb-2">Record Payment</h3>
-          <p className="text-xs text-primary-600 mb-3">Payment is applied to <strong>oldest unpaid/partial bills first (FIFO)</strong>. Summary, Ledger and Reports use this same logic.</p>
-          {preFillPayment.reference && (
-            <p className="text-xs text-green-700 mb-2 bg-green-100 px-2 py-1 rounded">Amount pre-filled for invoice <strong>{preFillPayment.reference}</strong>. You can change it; FIFO still applies.</p>
-          )}
+          <h3 className="font-semibold text-primary-800 mb-2">Record entry</h3>
+          <div className="flex flex-wrap gap-4 mb-3">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="recordEntryType" checked={recordEntryType === 'payment'} onChange={() => setRecordEntryType('payment')} className="text-green-600" />
+              <span className="text-sm font-medium text-primary-800">Payment</span>
+            </label>
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="recordEntryType" checked={recordEntryType === 'ledgerCredit'} onChange={() => setRecordEntryType('ledgerCredit')} className="text-green-600" />
+              <span className="text-sm font-medium text-primary-800">Ledger Credit (Vendor discount)</span>
+            </label>
+          </div>
 
-          {purchases.length > 0 && (
-            <div className="mb-4 rounded-lg border border-lime-400 bg-white overflow-hidden">
-              <h4 className="text-xs font-semibold text-primary-800 px-3 py-2 bg-lime-100 border-b border-lime-300">Bills for this supplier — see which are Paid / Partial / Unpaid</h4>
-              <div className="overflow-x-auto max-h-48 overflow-y-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-primary-50 sticky top-0">
-                    <tr>
-                      <th className="text-left p-2 font-medium text-primary-800">Invoice No</th>
-                      <th className="text-left p-2 font-medium text-primary-800">Date</th>
-                      <th className="text-right p-2 font-medium text-primary-800">Total</th>
-                      <th className="text-right p-2 font-medium text-primary-800">Paid</th>
-                      <th className="text-right p-2 font-medium text-primary-800">Balance</th>
-                      <th className="text-center p-2 font-medium text-primary-800">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {purchases.map(p => (
-                      <tr key={p.id} className="border-t border-primary-100 hover:bg-primary-50/50">
-                        <td className="p-2 font-medium">{p.invoiceNo}</td>
-                        <td className="p-2">{formatDate(p.purchaseDate)}</td>
-                        <td className="p-2 text-right">{formatCurrency(p.totalAmount || 0)}</td>
-                        <td className="p-2 text-right text-green-700">{formatCurrency(p.paidAmount || 0)}</td>
-                        <td className="p-2 text-right text-amber-700">{formatCurrency(p.balanceAmount || 0)}</td>
-                        <td className="p-2 text-center">
-                          <span className={`px-1.5 py-0.5 rounded font-medium ${
-                            (p.paymentStatus || '').toLowerCase() === 'paid' ? 'bg-green-100 text-green-800' :
-                            (p.paymentStatus || '').toLowerCase() === 'partial' ? 'bg-amber-100 text-amber-800' :
-                            'bg-neutral-100 text-neutral-700'
-                          }`}>
-                            {p.paymentStatus || 'Unpaid'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          {recordEntryType === 'payment' && (
+            <>
+              <p className="text-xs text-primary-600 mb-3">Payment is applied to <strong>oldest unpaid/partial bills first (FIFO)</strong>. Summary, Ledger and Reports use this same logic.</p>
+              {preFillPayment.reference && (
+                <p className="text-xs text-green-700 mb-2 bg-green-100 px-2 py-1 rounded">Amount pre-filled for invoice <strong>{preFillPayment.reference}</strong>. You can change it; FIFO still applies.</p>
+              )}
+              {purchases.length > 0 && (
+                <div className="mb-4 rounded-lg border border-lime-400 bg-white overflow-hidden">
+                  <h4 className="text-xs font-semibold text-primary-800 px-3 py-2 bg-lime-100 border-b border-lime-300">Bills for this supplier — see which are Paid / Partial / Unpaid</h4>
+                  <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-primary-50 sticky top-0">
+                        <tr>
+                          <th className="text-left p-2 font-medium text-primary-800">Invoice No</th>
+                          <th className="text-left p-2 font-medium text-primary-800">Date</th>
+                          <th className="text-right p-2 font-medium text-primary-800">Total</th>
+                          <th className="text-right p-2 font-medium text-primary-800">Paid</th>
+                          <th className="text-right p-2 font-medium text-primary-800">Balance</th>
+                          <th className="text-center p-2 font-medium text-primary-800">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {purchases.map(p => (
+                          <tr key={p.id} className="border-t border-primary-100 hover:bg-primary-50/50">
+                            <td className="p-2 font-medium">{p.invoiceNo}</td>
+                            <td className="p-2">{formatDate(p.purchaseDate)}</td>
+                            <td className="p-2 text-right">{formatCurrency(p.totalAmount || 0)}</td>
+                            <td className="p-2 text-right text-green-700">{formatCurrency(p.paidAmount || 0)}</td>
+                            <td className="p-2 text-right text-amber-700">{formatCurrency(p.balanceAmount || 0)}</td>
+                            <td className="p-2 text-center">
+                              <span className={`px-1.5 py-0.5 rounded font-medium ${
+                                (p.paymentStatus || '').toLowerCase() === 'paid' ? 'bg-green-100 text-green-800' :
+                                (p.paymentStatus || '').toLowerCase() === 'partial' ? 'bg-amber-100 text-amber-800' :
+                                'bg-neutral-100 text-neutral-700'
+                              }`}>
+                                {p.paymentStatus || 'Unpaid'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {recordEntryType === 'ledgerCredit' && (
+            <p className="text-xs text-primary-600 mb-3">Ledger credits (e.g. vendor discounts) reduce outstanding. They appear in the Ledger tab and in reports.</p>
           )}
 
           <form onSubmit={handleRecordPayment} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-primary-700 mb-1">Amount (AED) *</label>
-              <input type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={e => setPaymentForm({ ...paymentForm, amount: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-primary-700 mb-1">Date *</label>
-              <input type="date" required value={paymentForm.paymentDate} onChange={e => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-primary-700 mb-1">Mode</label>
-              <select value={paymentForm.mode} onChange={e => setPaymentForm({ ...paymentForm, mode: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2">
-                <option value="Cash">Cash</option>
-                <option value="Bank">Bank</option>
-                <option value="Cheque">Cheque</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-primary-700 mb-1">Reference</label>
-              <input type="text" value={paymentForm.reference} onChange={e => setPaymentForm({ ...paymentForm, reference: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" placeholder="Cheque no, etc." />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-primary-700 mb-1">Notes</label>
-              <input type="text" value={paymentForm.notes} onChange={e => setPaymentForm({ ...paymentForm, notes: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" />
-            </div>
+            {recordEntryType === 'payment' ? (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Amount (AED) *</label>
+                  <input type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={e => setPaymentForm({ ...paymentForm, amount: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Date *</label>
+                  <input type="date" required value={paymentForm.paymentDate} onChange={e => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Mode</label>
+                  <select value={paymentForm.mode} onChange={e => setPaymentForm({ ...paymentForm, mode: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2">
+                    <option value="Cash">Cash</option>
+                    <option value="Bank">Bank</option>
+                    <option value="Cheque">Cheque</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Reference</label>
+                  <input type="text" value={paymentForm.reference} onChange={e => setPaymentForm({ ...paymentForm, reference: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" placeholder="Cheque no, etc." />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Notes</label>
+                  <input type="text" value={paymentForm.notes} onChange={e => setPaymentForm({ ...paymentForm, notes: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Amount (AED) *</label>
+                  <input type="number" step="0.01" min="0.01" required value={ledgerCreditForm.amount} onChange={e => setLedgerCreditForm({ ...ledgerCreditForm, amount: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Date *</label>
+                  <input type="date" required value={ledgerCreditForm.creditDate} onChange={e => setLedgerCreditForm({ ...ledgerCreditForm, creditDate: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Vendor discount type *</label>
+                  <select value={ledgerCreditForm.creditType} onChange={e => setLedgerCreditForm({ ...ledgerCreditForm, creditType: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2">
+                    {DISCOUNT_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-primary-700 mb-1">Notes</label>
+                  <input type="text" value={ledgerCreditForm.notes} onChange={e => setLedgerCreditForm({ ...ledgerCreditForm, notes: e.target.value })} className="w-full border-2 border-lime-300 rounded px-3 py-2" placeholder="Optional" />
+                </div>
+              </>
+            )}
             <div className="sm:col-span-2 flex gap-2 items-end">
               <button type="submit" disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium">
-                {saving ? 'Saving...' : 'Save Payment'}
+                {saving ? 'Saving...' : recordEntryType === 'ledgerCredit' ? 'Save Ledger Credit' : 'Save Payment'}
               </button>
-              <button type="button" onClick={() => { setShowRecordPayment(false); setPreFillPayment({ amount: '', reference: '' }) }} className="px-4 py-2 border-2 border-primary-300 rounded-lg hover:bg-primary-50 font-medium">Cancel</button>
+              <button type="button" onClick={() => { setShowRecordPayment(false); setPreFillPayment({ amount: '', reference: '' }); setRecordEntryType('payment') }} className="px-4 py-2 border-2 border-primary-300 rounded-lg hover:bg-primary-50 font-medium">Cancel</button>
             </div>
           </form>
-          {balance?.netPayable > 0 && parseFloat(paymentForm.amount) > balance.netPayable && (
+          {recordEntryType === 'payment' && balance?.netPayable > 0 && parseFloat(paymentForm.amount) > balance.netPayable && (
             <p className="text-amber-600 text-sm mt-2">Amount exceeds outstanding ({formatCurrency(balance.netPayable)}). You may be overpaying.</p>
           )}
         </div>
@@ -592,6 +520,9 @@ const SupplierDetailPage = () => {
                 <div className="p-4 bg-primary-50 border-b-2 border-lime-300 flex flex-wrap gap-6 items-center">
                   <span className="text-sm"><span className="font-semibold text-primary-700">Total purchases (Debits):</span> <span className="font-bold text-primary-900">{formatCurrency(balance.totalPurchases || 0)}</span></span>
                   <span className="text-sm"><span className="font-semibold text-green-700">Total paid (Credits):</span> <span className="font-bold text-green-800">{formatCurrency(balance.totalPayments || 0)}</span></span>
+                  {(balance.totalLedgerCredits || 0) > 0 && (
+                    <span className="text-sm"><span className="font-semibold text-teal-700">Ledger credits:</span> <span className="font-bold text-teal-800">{formatCurrency(balance.totalLedgerCredits || 0)}</span></span>
+                  )}
                   <span className="text-sm"><span className="font-semibold text-amber-700">Pending balance:</span> <span className="font-bold text-amber-800">{formatCurrency(balance.netPayable || 0)}</span></span>
                 </div>
               )}
@@ -768,86 +699,6 @@ const SupplierDetailPage = () => {
               </div>
             </div>
           )}
-
-          {activeTab === 'vendor-discounts' && (
-            <div className="bg-white rounded-lg border-2 border-lime-300 overflow-hidden">
-              {!canUseVendorDiscounts ? (
-                <div className="p-6 text-center space-y-4">
-                  {!supplierInfo?.id ? (
-                    <>
-                      <p className="text-primary-600">Add this supplier to the directory to track vendor discounts. Then you can use the <strong>Add Vendor Discount</strong> button and enter amount and reason.</p>
-                      <button
-                        type="button"
-                        onClick={handleAddSupplierToDirectory}
-                        disabled={addingToDirectory}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-medium"
-                      >
-                        <Plus className="h-4 w-4" />
-                        {addingToDirectory ? 'Adding to directory...' : 'Add supplier to directory'}
-                      </button>
-                    </>
-                  ) : (
-                    <p className="text-amber-700 font-medium">Access Restricted. Vendor Discounts are only available to Owner and Admin.</p>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <div className="p-4 border-b border-lime-200 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-bold text-green-800">Total Savings: {formatCurrency(totalSavings)}</p>
-                      <p className="text-xs text-primary-500 mt-0.5">Private tracking – not reflected in ledger or reports.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={openAddVendorDiscount}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm"
-                    >
-                      <Plus className="h-4 w-4" /> Add Vendor Discount
-                    </button>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-primary-100">
-                        <tr>
-                          <th className="text-left p-2">Date</th>
-                          <th className="text-left p-2">Purchase Ref</th>
-                          <th className="text-left p-2">Type</th>
-                          <th className="text-right p-2">Amount</th>
-                          <th className="text-left p-2">Reason</th>
-                          <th className="text-left p-2">Added By</th>
-                          <th className="text-center p-2">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {vendorDiscounts.length === 0 ? (
-                          <tr><td colSpan={7} className="p-6 text-center text-primary-500">No vendor discounts recorded yet.</td></tr>
-                        ) : (
-                          vendorDiscounts.map((row) => (
-                            <tr key={row.id} className="border-t border-primary-100 hover:bg-primary-50">
-                              <td className="p-2">{formatDate(row.discountDate)}</td>
-                              <td className="p-2">{row.purchaseInvoiceNo || '—'}</td>
-                              <td className="p-2">
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getDiscountTypeBadgeClass(row.discountType)}`}>
-                                  {row.discountType}
-                                </span>
-                              </td>
-                              <td className="p-2 text-right font-bold">{formatCurrency(row.amount)}</td>
-                              <td className="p-2 max-w-xs truncate" title={row.reason}>{row.reason || '—'}</td>
-                              <td className="p-2 text-primary-600">{row.createdByUserName || '—'}</td>
-                              <td className="p-2 text-center">
-                                <button type="button" onClick={() => openEditVendorDiscount(row)} className="text-indigo-600 hover:text-indigo-800 p-1" title="Edit"><Pencil className="h-4 w-4 inline" /></button>
-                                <button type="button" onClick={() => { setDeleteVendorDiscountId(row.id); setShowDeleteVendorDiscountConfirm(true) }} className="text-red-600 hover:text-red-800 p-1 ml-1" title="Delete"><Trash2 className="h-4 w-4 inline" /></button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
         </>
       )}
 
@@ -938,92 +789,6 @@ const SupplierDetailPage = () => {
         title="Delete payment?"
         message="This payment will be removed. Ledger and outstanding balance will be recalculated. This cannot be undone."
         confirmLabel={deletingPayment ? 'Deleting...' : 'Delete'}
-      />
-
-      <Modal
-        isOpen={showVendorDiscountModal}
-        onClose={() => { setShowVendorDiscountModal(false); setEditingVendorDiscount(null) }}
-        title={editingVendorDiscount ? 'Edit Vendor Discount' : 'Add Vendor Discount'}
-        size="md"
-      >
-        <form onSubmit={saveVendorDiscount} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-primary-700 mb-1">Related Purchase (optional)</label>
-            <select
-              value={vendorDiscountForm.purchaseId}
-              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, purchaseId: e.target.value })}
-              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
-            >
-              <option value="">— None —</option>
-              {purchases.filter(p => (p.paymentStatus || '').toLowerCase() !== 'paid' || (p.balanceAmount || 0) > 0).map(p => (
-                <option key={p.id} value={p.id}>{p.invoiceNo} – {formatCurrency(p.balanceAmount || 0)} balance</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-primary-700 mb-1">Discount Amount (AED) *</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              required
-              value={vendorDiscountForm.amount}
-              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, amount: e.target.value })}
-              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-primary-700 mb-1">Discount Date *</label>
-            <input
-              type="date"
-              required
-              max={new Date().toISOString().split('T')[0]}
-              value={vendorDiscountForm.discountDate}
-              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, discountDate: e.target.value })}
-              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-primary-700 mb-1">Discount Type *</label>
-            <select
-              value={vendorDiscountForm.discountType}
-              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, discountType: e.target.value })}
-              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
-            >
-              {DISCOUNT_TYPES.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-primary-700 mb-1">Reason / Notes (optional)</label>
-            <textarea
-              rows={3}
-              placeholder="e.g., 5% bulk order discount, 10 boxes free"
-              value={vendorDiscountForm.reason}
-              onChange={e => setVendorDiscountForm({ ...vendorDiscountForm, reason: e.target.value })}
-              className="w-full border-2 border-primary-200 rounded-lg px-3 py-2"
-            />
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-            This discount will be tracked privately and will NOT affect ledger, cash flow, or any reports.
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button type="button" onClick={() => { setShowVendorDiscountModal(false); setEditingVendorDiscount(null) }} className="px-4 py-2 border-2 border-primary-300 rounded-lg hover:bg-primary-50 font-medium">Cancel</button>
-            <button type="submit" disabled={savingVendorDiscount} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium">
-              {savingVendorDiscount ? 'Saving...' : 'Save Discount'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      <ConfirmDangerModal
-        isOpen={showDeleteVendorDiscountConfirm}
-        onClose={() => { setShowDeleteVendorDiscountConfirm(false); setDeleteVendorDiscountId(null) }}
-        onConfirm={confirmDeleteVendorDiscount}
-        title="Delete vendor discount?"
-        message="Delete this vendor discount record? This cannot be undone."
-        confirmLabel="Delete"
       />
     </div>
   )

@@ -1257,6 +1257,10 @@ export const suppliersAPI = {
     const response = await api.post(`/suppliers/${encodeURIComponent(supplierName)}/payments`, data)
     return response.data
   },
+  createLedgerCredit: async (supplierName, data) => {
+    const response = await api.post(`/suppliers/${encodeURIComponent(supplierName)}/ledger-credits`, data)
+    return response.data
+  },
   updatePayment: async (supplierName, paymentId, data) => {
     const response = await api.put(`/suppliers/${encodeURIComponent(supplierName)}/payments/${paymentId}`, data)
     return response.data
@@ -1279,23 +1283,6 @@ export const suppliersAPI = {
   },
   deleteSupplier: async (supplierName) => {
     const response = await api.delete(`/suppliers/${encodeURIComponent(supplierName)}`)
-    return response.data
-  },
-  // Vendor Discounts (Owner/Admin only; not reflected in ledger or reports)
-  getVendorDiscounts: async (supplierId) => {
-    const response = await api.get(`/suppliers/${supplierId}/vendor-discounts`)
-    return response.data
-  },
-  createVendorDiscount: async (supplierId, data) => {
-    const response = await api.post(`/suppliers/${supplierId}/vendor-discounts`, data)
-    return response.data
-  },
-  updateVendorDiscount: async (supplierId, id, data) => {
-    const response = await api.put(`/suppliers/${supplierId}/vendor-discounts/${id}`, data)
-    return response.data
-  },
-  deleteVendorDiscount: async (supplierId, id) => {
-    const response = await api.delete(`/suppliers/${supplierId}/vendor-discounts/${id}`)
     return response.data
   }
 }

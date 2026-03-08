@@ -346,6 +346,60 @@ namespace HexaBill.Api.Modules.Purchases
             }
         }
 
+        /// <summary>Create a ledger credit (e.g. vendor discount) for the supplier; reduces outstanding.</summary>
+        [HttpPost("{supplierName}/ledger-credits")]
+        [Authorize(Roles = "Admin,Owner,SystemAdmin")]
+        public async Task<ActionResult<ApiResponse<SupplierLedgerCreditDto>>> CreateLedgerCredit(
+            string supplierName,
+            [FromBody] CreateLedgerCreditRequest request)
+        {
+            try
+            {
+                if (request == null || request.Amount <= 0)
+                    return BadRequest(new ApiResponse<SupplierLedgerCreditDto> { Success = false, Message = "Amount must be positive." });
+                if (string.IsNullOrWhiteSpace(request.CreditType))
+                    return BadRequest(new ApiResponse<SupplierLedgerCreditDto> { Success = false, Message = "Credit type is required (e.g. Cash Discount, Promotional)." });
+
+                var tenantId = CurrentTenantId;
+                var userIdClaim = User.FindFirst("UserId") ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier) ?? User.FindFirst("id");
+                var userId = int.TryParse(userIdClaim?.Value ?? "0", out var uid) ? uid : 1;
+
+                var result = await _supplierService.CreateLedgerCreditAsync(
+                    tenantId,
+                    Uri.UnescapeDataString(supplierName),
+                    request.Amount,
+                    request.CreditDate,
+                    request.CreditType,
+                    request.Notes,
+                    userId);
+
+                return Ok(new ApiResponse<SupplierLedgerCreditDto>
+                {
+                    Success = true,
+                    Message = "Ledger credit created successfully",
+                    Data = result
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse<SupplierLedgerCreditDto>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Errors = new List<string> { ex.Message }
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ApiResponse<SupplierLedgerCreditDto>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Errors = new List<string> { ex.Message }
+                });
+            }
+        }
+
         [HttpPut("{supplierName}/payments/{paymentId:int}")]
         [Authorize(Roles = "Admin,Owner,SystemAdmin")]
         public async Task<ActionResult<ApiResponse<SupplierPaymentDto>>> UpdatePayment(string supplierName, int paymentId, [FromBody] RecordSupplierPaymentRequest request)
@@ -395,6 +449,14 @@ namespace HexaBill.Api.Modules.Purchases
         public DateTime PaymentDate { get; set; }
         public SupplierPaymentMode Mode { get; set; }
         public string? Reference { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class CreateLedgerCreditRequest
+    {
+        public decimal Amount { get; set; }
+        public DateTime CreditDate { get; set; }
+        public string CreditType { get; set; } = string.Empty; // e.g. Cash Discount, Promotional, Negotiated, Free Products
         public string? Notes { get; set; }
     }
 }

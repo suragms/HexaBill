@@ -36,6 +36,7 @@ namespace HexaBill.Api.Data
         public DbSet<SupplierCategory> SupplierCategories { get; set; }
         public DbSet<Supplier> Suppliers { get; set; }
         public DbSet<SupplierPayment> SupplierPayments { get; set; }
+        public DbSet<SupplierLedgerCredit> SupplierLedgerCredits { get; set; }
         public DbSet<VendorDiscount> VendorDiscounts { get; set; }
         public DbSet<Purchase> Purchases { get; set; }
         public DbSet<PurchaseItem> PurchaseItems { get; set; }
@@ -191,6 +192,18 @@ namespace HexaBill.Api.Data
                 entity.Property(e => e.Mode).HasConversion<string>();
                 entity.HasIndex(e => new { e.TenantId, e.PaymentDate });
                 entity.HasIndex(e => new { e.TenantId, e.SupplierName });
+            });
+
+            // SupplierLedgerCredit – reduces supplier outstanding (vendor discounts as credits)
+            modelBuilder.Entity<SupplierLedgerCredit>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.SupplierName).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.CreditType).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.Notes).HasMaxLength(500);
+                entity.HasIndex(e => new { e.TenantId, e.SupplierName });
+                entity.HasIndex(e => e.CreditDate);
             });
 
             // VendorDiscount configuration - private tracking only; NOT used in ledger, balance, or reports

@@ -16,6 +16,7 @@ namespace HexaBill.Api.Modules.Purchases
         Task<List<SupplierTransactionDto>> GetSupplierTransactionsAsync(int tenantId, string supplierName, DateTime? fromDate = null, DateTime? toDate = null);
         Task<List<SupplierSummaryDto>> GetAllSuppliersSummaryAsync(int tenantId);
         Task<SupplierPaymentDto> CreateSupplierPaymentAsync(int tenantId, string supplierName, decimal amount, DateTime paymentDate, SupplierPaymentMode mode, string? reference, string? notes, int userId);
+        Task<SupplierLedgerCreditDto> CreateLedgerCreditAsync(int tenantId, string supplierName, decimal amount, DateTime creditDate, string creditType, string? notes, int userId);
         Task<SupplierPaymentDto?> UpdateSupplierPaymentAsync(int tenantId, int paymentId, decimal amount, DateTime paymentDate, SupplierPaymentMode mode, string? reference, string? notes);
         Task<bool> DeleteSupplierPaymentAsync(int tenantId, int paymentId);
         Task<List<string>> SearchSupplierNamesAsync(int tenantId, string query, int limit = 20);
@@ -36,25 +37,25 @@ namespace HexaBill.Api.Modules.Purchases
 
         public async Task<SupplierBalanceDto> GetSupplierBalanceAsync(int tenantId, string supplierName)
         {
-            // ISOLATION: VendorDiscounts are intentionally excluded. Balance = Purchases - Returns - Payments only.
-            // Calculate total purchases (what we owe) + OWNER FILTER
+            // Balance = Purchases - Returns - Payments - LedgerCredits (vendor discounts as credits).
             var totalPurchases = await _context.Purchases
                 .Where(p => p.TenantId == tenantId && p.SupplierName == supplierName)
                 .SumAsync(p => (decimal?)p.TotalAmount) ?? 0;
 
-            // Calculate total purchase returns (credit) + OWNER FILTER
             var totalPurchaseReturns = await _context.PurchaseReturns
                 .Include(pr => pr.Purchase)
                 .Where(pr => pr.Purchase.TenantId == tenantId && pr.Purchase.SupplierName == supplierName)
                 .SumAsync(pr => (decimal?)pr.GrandTotal) ?? 0;
 
-            // Calculate total payments (credit)
             var totalPayments = await _context.SupplierPayments
                 .Where(sp => sp.TenantId == tenantId && sp.SupplierName == supplierName)
                 .SumAsync(sp => (decimal?)sp.Amount) ?? 0;
 
-            // Net payable = Purchases - Returns - Payments
-            var netPayable = totalPurchases - totalPurchaseReturns - totalPayments;
+            var totalLedgerCredits = await _context.SupplierLedgerCredits
+                .Where(slc => slc.TenantId == tenantId && slc.SupplierName == supplierName)
+                .SumAsync(slc => (decimal?)slc.Amount) ?? 0;
+
+            var netPayable = totalPurchases - totalPurchaseReturns - totalPayments - totalLedgerCredits;
 
             var lastPaymentDate = await _context.SupplierPayments
                 .Where(sp => sp.TenantId == tenantId && sp.SupplierName == supplierName)
@@ -68,6 +69,7 @@ namespace HexaBill.Api.Modules.Purchases
                 TotalPurchases = totalPurchases,
                 TotalReturns = totalPurchaseReturns,
                 TotalPayments = totalPayments,
+                TotalLedgerCredits = totalLedgerCredits,
                 NetPayable = netPayable,
                 LastPurchaseDate = await _context.Purchases
                     .Where(p => p.TenantId == tenantId && p.SupplierName == supplierName)
@@ -80,7 +82,7 @@ namespace HexaBill.Api.Modules.Purchases
 
         public async Task<List<SupplierTransactionDto>> GetSupplierTransactionsAsync(int tenantId, string supplierName, DateTime? fromDate = null, DateTime? toDate = null)
         {
-            // ISOLATION: Ledger shows only Purchases, PurchaseReturns, and SupplierPayments. VendorDiscounts are excluded.
+            // Ledger: Purchases, Returns, Payments, and Ledger Credits (vendor discounts).
             var transactions = new List<SupplierTransactionDto>();
 
             // Purchases (debits) + OWNER FILTER
@@ -160,6 +162,28 @@ namespace HexaBill.Api.Modules.Purchases
                     Balance = 0,
                     Mode = payment.Mode.ToString(),
                     Notes = payment.Notes
+                });
+            }
+
+            // Ledger Credits (vendor discounts)
+            var creditsQuery = _context.SupplierLedgerCredits
+                .Where(slc => slc.TenantId == tenantId && slc.SupplierName == supplierName);
+            if (fromDate.HasValue)
+                creditsQuery = creditsQuery.Where(slc => slc.CreditDate >= fromDate.Value);
+            if (toDate.HasValue)
+                creditsQuery = creditsQuery.Where(slc => slc.CreditDate <= toDate.Value.AddDays(1));
+            var ledgerCredits = await creditsQuery.OrderBy(slc => slc.CreditDate).ToListAsync();
+            foreach (var credit in ledgerCredits)
+            {
+                transactions.Add(new SupplierTransactionDto
+                {
+                    Date = credit.CreditDate,
+                    Type = "Ledger Credit",
+                    Reference = credit.CreditType ?? $"Credit #{credit.Id}",
+                    Debit = 0,
+                    Credit = credit.Amount,
+                    Balance = 0,
+                    Notes = credit.Notes
                 });
             }
 
@@ -260,6 +284,43 @@ namespace HexaBill.Api.Modules.Purchases
                 Reference = payment.Reference,
                 Notes = payment.Notes,
                 CreatedAt = payment.CreatedAt
+            };
+        }
+
+        public async Task<SupplierLedgerCreditDto> CreateLedgerCreditAsync(int tenantId, string supplierName, decimal amount, DateTime creditDate, string creditType, string? notes, int userId)
+        {
+            if (amount <= 0)
+                throw new ArgumentException("Credit amount must be positive.", nameof(amount));
+            var date = creditDate.ToUtcKind().Date;
+            if (date > DateTime.UtcNow.Date)
+                throw new ArgumentException("Credit date cannot be in the future.", nameof(creditDate));
+            var type = (creditType ?? "").Trim();
+            if (string.IsNullOrEmpty(type))
+                throw new ArgumentException("Credit type is required (e.g. Cash Discount, Promotional).", nameof(creditType));
+
+            var credit = new SupplierLedgerCredit
+            {
+                TenantId = tenantId,
+                SupplierName = supplierName,
+                Amount = amount,
+                CreditDate = date,
+                CreditType = type,
+                Notes = notes?.Trim(),
+                CreatedBy = userId,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.SupplierLedgerCredits.Add(credit);
+            await _context.SaveChangesAsync();
+
+            return new SupplierLedgerCreditDto
+            {
+                Id = credit.Id,
+                SupplierName = credit.SupplierName,
+                Amount = credit.Amount,
+                CreditDate = credit.CreditDate,
+                CreditType = credit.CreditType,
+                Notes = credit.Notes,
+                CreatedAt = credit.CreatedAt
             };
         }
 
@@ -616,6 +677,7 @@ namespace HexaBill.Api.Modules.Purchases
         public decimal TotalPurchases { get; set; }
         public decimal TotalReturns { get; set; }
         public decimal TotalPayments { get; set; }
+        public decimal TotalLedgerCredits { get; set; }
         public decimal NetPayable { get; set; }
         public DateTime? LastPurchaseDate { get; set; }
         public DateTime? LastPaymentDate { get; set; }
@@ -629,6 +691,17 @@ namespace HexaBill.Api.Modules.Purchases
         public DateTime PaymentDate { get; set; }
         public string Mode { get; set; } = string.Empty;
         public string? Reference { get; set; }
+        public string? Notes { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class SupplierLedgerCreditDto
+    {
+        public int Id { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public DateTime CreditDate { get; set; }
+        public string CreditType { get; set; } = string.Empty;
         public string? Notes { get; set; }
         public DateTime CreatedAt { get; set; }
     }
