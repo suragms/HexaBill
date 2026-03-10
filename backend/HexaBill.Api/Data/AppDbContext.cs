@@ -158,7 +158,12 @@ namespace HexaBill.Api.Data
                 entity.Property(e => e.PaymentType).HasMaxLength(20).IsRequired(false);
                 entity.Property(e => e.AmountPaid).HasColumnType("decimal(18,2)").IsRequired(false);
                 entity.Property(e => e.ReverseChargeVat).HasColumnType("decimal(18,4)").IsRequired(false);
-                
+                // Migration added these as INTEGER; Npgsql reads as int, map to bool
+                if (Database.IsNpgsql())
+                {
+                    entity.Property(e => e.IsReverseCharge).HasConversion<int>();
+                    entity.Property(e => e.IsTaxClaimable).HasConversion<int>();
+                }
                 entity.HasOne(e => e.Supplier).WithMany().HasForeignKey(e => e.SupplierId).OnDelete(DeleteBehavior.SetNull);
                 entity.HasOne(e => e.CreatedByUser).WithMany().HasForeignKey(e => e.CreatedBy);
             });
@@ -495,6 +500,12 @@ namespace HexaBill.Api.Data
                 entity.Property(e => e.AttachmentUrl).HasMaxLength(500);
                 entity.Property(e => e.RejectionReason).HasMaxLength(500);
                 entity.Property(e => e.Status).HasConversion<int>(); // Store enum as int
+                // Migration added these as INTEGER; Npgsql reads as int, map to bool (fixes "Reading as Boolean not supported for integer")
+                if (Database.IsNpgsql())
+                {
+                    entity.Property(e => e.IsTaxClaimable).HasConversion<int>();
+                    entity.Property(e => e.IsEntertainment).HasConversion<int>();
+                }
                 entity.HasOne(e => e.Category).WithMany(c => c.Expenses).HasForeignKey(e => e.CategoryId);
                 entity.HasOne(e => e.Route).WithMany().HasForeignKey(e => e.RouteId).OnDelete(DeleteBehavior.SetNull);
                 entity.HasOne(e => e.RecurringExpense).WithMany(r => r.GeneratedExpenses).HasForeignKey(e => e.RecurringExpenseId).OnDelete(DeleteBehavior.SetNull);
