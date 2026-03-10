@@ -21,11 +21,13 @@ namespace HexaBill.Api.Modules.Payments
     {
         private readonly IPaymentService _paymentService;
         private readonly IPaymentReceiptService _receiptService;
+        private readonly ILogger<PaymentsController> _logger;
 
-        public PaymentsController(IPaymentService paymentService, IPaymentReceiptService receiptService)
+        public PaymentsController(IPaymentService paymentService, IPaymentReceiptService receiptService, ILogger<PaymentsController> logger)
         {
             _paymentService = paymentService;
             _receiptService = receiptService;
+            _logger = logger;
         }
 
         [HttpGet("duplicate-check")]
@@ -619,8 +621,9 @@ namespace HexaBill.Api.Modules.Payments
             {
                 return BadRequest(new ApiResponse<object> { Success = false, Message = ex.Message });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Receipt generation failed for payment {PaymentId}: {Message}. Inner: {InnerMessage}", paymentId, ex.Message, ex.InnerException?.Message);
                 return StatusCode(500, new ApiResponse<object> { Success = false, Message = "Receipt could not be loaded. Please try again or contact support." });
             }
         }
@@ -653,6 +656,7 @@ namespace HexaBill.Api.Modules.Payments
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Batch receipt generation failed: {Message}. Inner: {InnerMessage}", ex.Message, ex.InnerException?.Message);
                 return StatusCode(500, new ApiResponse<object> { Success = false, Message = "Receipt could not be loaded. Please try again or contact support." });
             }
         }

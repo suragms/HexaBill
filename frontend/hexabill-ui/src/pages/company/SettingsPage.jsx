@@ -56,6 +56,7 @@ const SettingsPage = () => {
   const [showTemplatePreview, setShowTemplatePreview] = useState(false)
   const [logoBlobUrl, setLogoBlobUrl] = useState(null)
   const [showInvoicePreview, setShowInvoicePreview] = useState(false)
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false)
   const [settings, setSettings] = useState({
     companyNameEn: 'HexaBill',
     companyNameAr: 'هيكسابيل',
@@ -194,6 +195,11 @@ const SettingsPage = () => {
       }
     }
   }, [settings.logoUrl])
+
+  // Reset logo-not-found when URL or preview changes
+  useEffect(() => {
+    setLogoLoadFailed(false)
+  }, [settings.logoUrl, logoPreview])
 
   const fetchBackups = async () => {
     try {
@@ -784,8 +790,8 @@ const SettingsPage = () => {
                         alt="Company Logo"
                         className="h-24 w-24 object-contain border border-gray-200 rounded-lg"
                         onError={(e) => {
-                          // Fallback if logo not found
                           e.target.style.display = 'none'
+                          if (settings.logoUrl && !logoPreview) setLogoLoadFailed(true)
                         }}
                       />
                       <button
@@ -827,6 +833,11 @@ const SettingsPage = () => {
                       </>
                     )}
 
+                    {logoLoadFailed && (
+                      <p className="text-sm text-amber-600">
+                        Logo not found. Please re-upload.
+                      </p>
+                    )}
                     <p className="text-sm text-gray-500">
                       PNG, JPG, WEBP — Max 5MB. Your logo appears on all invoices and documents.
                     </p>

@@ -1,5 +1,12 @@
 /*
-Purpose: Generate payment receipts (proof of payment, not tax invoice)
+Purpose: Generate payment receipts (proof of payment, not tax invoice).
+
+Business logic:
+- Single payment: one receipt with one invoice line (invoice no, date, total, amount applied).
+- Multiple payments (multi-bill): one combined receipt with total amount received and a table of
+  all invoices/bills and amount applied to each. Optional – print only when customer requests.
+- Receipt shows: received from, amount received (and in words), payment method, optional reference,
+  and per-invoice breakdown when multiple payments/invoices are included.
 */
 using Microsoft.EntityFrameworkCore;
 using HexaBill.Api.Data;

@@ -150,6 +150,8 @@ const ReportsPage = () => {
     netSalesReport: null, // { totalSales, totalReturns, netSales } from summary
     vatReturn: null // FTA VAT 201 return for UAE filing
   })
+  // VAT Return tab: distinguish access denied (403) vs server error vs no data
+  const [vatReturnLoadError, setVatReturnLoadError] = useState(null) // null | 'access' | { message: string }
   const [returnsFeatureFlags, setReturnsFeatureFlags] = useState({ returnsEnabled: true, returnsRequireApproval: false })
   const [loadingSales, setLoadingSales] = useState(false)
   const [expandedBranchId, setExpandedBranchId] = useState(null) // Branch Report: which branch row is expanded for route sub-rows
@@ -964,17 +966,28 @@ const ReportsPage = () => {
       } else if (activeTab === 'vat-return') {
         try {
           setLoading(true)
+          setVatReturnLoadError(null)
           const from = dateRange?.from || null
           const to = dateRange?.to || null
           const params = (from && to) ? { from, to } : { quarter: vatReturnQuarter, year: vatReturnYear }
           const vatResponse = await reportsAPI.getVatReturn(params)
           if (vatResponse?.success && vatResponse?.data) {
             setReportData(prev => ({ ...prev, vatReturn: vatResponse.data }))
+            setVatReturnLoadError(null)
           } else {
             setReportData(prev => ({ ...prev, vatReturn: null }))
+            setVatReturnLoadError(null)
           }
         } catch (error) {
-          if (!error?._handledByInterceptor) toast.error(error?.response?.data?.message || 'Failed to load VAT return')
+          const status = error?.response?.status
+          const msg = error?.response?.data?.message || error?.message || 'Failed to load VAT return'
+          if (status === 403) {
+            setVatReturnLoadError('access')
+            if (!error?._handledByInterceptor) toast.error('You don\'t have permission to view VAT Return.')
+          } else {
+            setVatReturnLoadError({ message: msg })
+            if (!error?._handledByInterceptor) toast.error(msg)
+          }
           setReportData(prev => ({ ...prev, vatReturn: null }))
         } finally {
           setLoading(false)
@@ -3884,7 +3897,16 @@ const ReportsPage = () => {
                     })()}
                   </div>
                 ) : (
-                  <p className="py-12 text-center text-gray-500">No VAT data. Set date range (From/To) or quarter/year and load the report.</p>
+                  <div className="py-12 text-center">
+                    <p className="text-gray-500">No VAT data. Set date range (From/To) or quarter/year and load the report.</p>
+                    <button
+                      type="button"
+                      onClick={() => { tabDataCacheRef.current = {}; fetchReportDataRef.current?.(true) }}
+                      className="mt-4 px-4 py-2 border border-neutral-300 rounded-md text-sm text-gray-700 hover:bg-neutral-50"
+                    >
+                      Refresh / Load report
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

@@ -309,15 +309,15 @@ var r2SecretKey = Environment.GetEnvironmentVariable("R2_SECRET_KEY") ?? builder
 if (!string.IsNullOrWhiteSpace(r2Endpoint) && !string.IsNullOrWhiteSpace(r2AccessKey) && !string.IsNullOrWhiteSpace(r2SecretKey))
 {
     builder.Services.AddScoped<IFileUploadService, R2FileUploadService>();
-    logger.LogInformation("✅ Cloudflare R2 storage enabled for file uploads");
+    builder.Services.AddScoped<HexaBill.Api.Shared.Services.IStorageService, HexaBill.Api.Shared.Services.R2StorageService>();
+    logger.LogInformation("✅ Cloudflare R2 storage enabled for file uploads and logo storage");
 }
 else
 {
     builder.Services.AddScoped<IFileUploadService, FileUploadService>();
+    builder.Services.AddScoped<HexaBill.Api.Shared.Services.IStorageService, HexaBill.Api.Shared.Services.LocalStorageService>();
     logger.LogWarning("⚠️ R2 storage not configured - using local disk storage (files will be lost on server restart/deploy). Set R2_ENDPOINT, R2_ACCESS_KEY, and R2_SECRET_KEY to enable R2 storage.");
 }
-// Tenant-isolated logo storage (IStorageService): used by logo upload API and PDF; always use local for now
-builder.Services.AddScoped<HexaBill.Api.Shared.Services.IStorageService, HexaBill.Api.Shared.Services.LocalStorageService>();
 builder.Services.AddScoped<IReturnService, ReturnService>();
 builder.Services.AddScoped<IProfitService, ProfitService>();
 builder.Services.AddScoped<IStockAdjustmentService, StockAdjustmentService>();

@@ -4336,7 +4336,7 @@ const PaymentsTab = ({ payments, user, onViewReceipt, onEditPayment, onDeletePay
                         <button
                           onClick={() => onViewReceipt(payment.id)}
                           className="text-blue-600 hover:text-blue-900 p-1 rounded transition-colors"
-                          title="Print Receipt"
+                          title="Print receipt (optional – when customer asks)"
                         >
                           <Printer className="h-4 w-4" />
                         </button>
@@ -4424,7 +4424,8 @@ const PaymentsTab = ({ payments, user, onViewReceipt, onEditPayment, onDeletePay
                 <button
                   onClick={() => onViewReceipt(payment.id)}
                   className="px-3 py-2 text-blue-600 hover:bg-blue-50 rounded-md text-xs font-medium flex items-center gap-1"
-                  aria-label="Print receipt"
+                  aria-label="Print receipt (optional)"
+                  title="Print receipt when customer asks"
                 >
                   <Printer className="h-3.5 w-3.5" /> Receipt
                 </button>
