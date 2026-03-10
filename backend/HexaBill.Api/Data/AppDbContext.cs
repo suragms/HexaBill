@@ -343,6 +343,16 @@ namespace HexaBill.Api.Data
                 entity.HasOne(e => e.Product).WithMany().HasForeignKey(e => e.ProductId);
             });
 
+            // RecurringInvoiceItem configuration (Qty/UnitPrice must be numeric in DB - see Fix_RecurringInvoiceItems_Numeric_PostgreSQL.sql)
+            modelBuilder.Entity<RecurringInvoiceItem>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Qty).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.UnitPrice).HasColumnType("decimal(18,2)");
+                entity.HasOne(e => e.RecurringInvoice).WithMany(r => r.Items).HasForeignKey(e => e.RecurringInvoiceId);
+                entity.HasOne(e => e.Product).WithMany().HasForeignKey(e => e.ProductId);
+            });
+
             // Customer configuration - Base configuration
             modelBuilder.Entity<Customer>(entity =>
             {
