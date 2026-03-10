@@ -879,11 +879,16 @@ namespace HexaBill.Api.Modules.Billing
                 {
                     var logoBytes = await _storageService.ReadBytesAsync(companySettings.LogoStorageKey);
                     dto.LogoImageBytes = logoBytes;
+                    _logger.LogDebug("Invoice PDF: logo loaded for tenant {TenantId}, {Bytes} bytes.", tenantId, logoBytes?.Length ?? 0);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Logo load failed for tenant {TenantId}. Invoice will render with text-only header.", tenantId);
                 }
+            }
+            else
+            {
+                _logger.LogDebug("Invoice PDF: no logo set for tenant {TenantId}.", tenantId);
             }
             return dto;
         }

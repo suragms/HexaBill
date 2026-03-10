@@ -32,7 +32,7 @@ namespace HexaBill.Api.Modules.Reports
             var date = transactionDate.Date;
             var locked = await _context.VatReturnPeriods
                 .AnyAsync(p => p.TenantId == tenantId
-                    && string.Equals(p.Status, "Locked", StringComparison.OrdinalIgnoreCase)
+                    && p.Status == "Locked"
                     && date >= p.PeriodStart.Date
                     && date <= p.PeriodEnd.Date);
             return locked;

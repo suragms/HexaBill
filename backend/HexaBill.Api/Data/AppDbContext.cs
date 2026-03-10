@@ -258,6 +258,7 @@ namespace HexaBill.Api.Data
                 entity.Property(e => e.Subtotal).HasColumnType("decimal(18,2)");
                 entity.Property(e => e.VatTotal).HasColumnType("decimal(18,2)");
                 entity.Property(e => e.Discount).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.RoundOff).HasColumnType("decimal(18,2)");
                 entity.Property(e => e.GrandTotal).HasColumnType("decimal(18,2)");
                 entity.Property(e => e.PaymentStatus).HasConversion<string>(); // SalePaymentStatus enum
                 entity.Property(e => e.IsDeleted).HasDefaultValue(false);
@@ -841,6 +842,7 @@ namespace HexaBill.Api.Data
                 entity.HasKey(e => e.Id);
                 if (Database.IsNpgsql())
                     entity.Property(e => e.Id).UseIdentityByDefaultColumn();
+                entity.Property(e => e.RoundOff).HasColumnType("decimal(18,2)");
             });
 
             // Seed data
