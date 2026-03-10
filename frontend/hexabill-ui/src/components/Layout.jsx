@@ -202,6 +202,7 @@ const Layout = () => {
       ] : []),
     { name: 'Expenses', href: '/expenses', icon: Receipt },
     ...(isAdminOrOwner(user) ? [{ name: 'Reports', href: '/reports', icon: BarChart3 }] : []),
+    ...(isAdminOrOwner(user) ? [{ name: 'VAT Return', href: '/reports?tab=vat-return', icon: FileText }] : []),
     ...(isOwner(user) ? [{ name: 'Worksheet', href: '/worksheet', icon: FileText }] : []),
     ...(isAdminOrOwner(user) ? [{ name: 'Settings', href: '/settings', icon: Settings }] : []),
     ...(isAdminOrOwner(user) ? [{ name: 'Activity log', href: '/audit', icon: ClipboardList }] : []),
@@ -211,6 +212,8 @@ const Layout = () => {
 
   const isActive = (href) => {
     if (location.pathname === href) return true
+    // VAT Return: active when on reports with tab=vat-return
+    if (href === '/reports?tab=vat-return' && location.pathname === '/reports' && location.search?.includes('tab=vat-return')) return true
     // Keep Branches/ Routes nav active when on detail pages
     if (href === '/branches' && (location.pathname.startsWith('/branches/') || location.pathname.startsWith('/routes/'))) return true
     // Keep Suppliers nav active when on supplier detail

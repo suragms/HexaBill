@@ -1119,6 +1119,8 @@ const ExpensesPage = () => {
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Branch</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Route</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r border-neutral-200">Amount</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r border-neutral-200">VAT</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r border-neutral-200">Total</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Date</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Status</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Note</th>
@@ -1128,7 +1130,7 @@ const ExpensesPage = () => {
                 <tbody className="divide-y divide-neutral-100">
                   {displayExpenses.length === 0 ? (
                     <tr>
-                      <td colSpan="9" className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan="11" className="px-6 py-8 text-center text-gray-500">
                         {user && !isAdminOrOwner(user)
                           ? 'No expenses in your assigned branch(es) for this period.'
                           : 'No expenses found'}
@@ -1154,6 +1156,12 @@ const ExpensesPage = () => {
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-right font-medium text-gray-900">
                           {formatCurrency(expense.amount)}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-right text-gray-700">
+                          {expense.vatAmount != null ? formatCurrency(expense.vatAmount) : '-'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-right font-medium text-gray-900">
+                          {expense.totalAmount != null ? formatCurrency(expense.totalAmount) : (expense.vatAmount != null ? formatCurrency((Number(expense.amount) || 0) + (Number(expense.vatAmount) || 0)) : formatCurrency(expense.amount))}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-gray-900">
                           {expense.date ? new Date(expense.date).toLocaleDateString('en-GB') : '-'}
@@ -1273,7 +1281,10 @@ const ExpensesPage = () => {
                           )}
                         </div>
                       </div>
-                      <p className="text-base font-bold text-red-600 ml-2">{formatCurrency(expense.amount)}</p>
+                      <div className="text-right ml-2">
+                        <p className="text-base font-bold text-red-600">{formatCurrency(expense.totalAmount != null ? expense.totalAmount : (expense.vatAmount != null ? (Number(expense.amount) || 0) + (Number(expense.vatAmount) || 0) : expense.amount))}</p>
+                        {expense.vatAmount != null && <p className="text-xs text-gray-500">VAT {formatCurrency(expense.vatAmount)}</p>}
+                      </div>
                     </div>
                     <div className="flex items-center justify-between text-xs text-gray-500 mt-3 pt-3 border-t border-gray-200">
                       <div className="flex items-center gap-3">
@@ -1401,6 +1412,17 @@ const ExpensesPage = () => {
                 min: { value: 0.01, message: 'Amount must be greater than 0' }
               })}
             />
+            {watch('withVat') && (() => {
+              const net = Number(watch('amount')) || 0
+              const vat = Math.round(net * 0.05 * 100) / 100
+              const total = net + vat
+              return (
+                <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm">
+                  <span className="text-gray-600">VAT (5%): </span><span className="font-medium">{formatCurrency(vat)}</span>
+                  <span className="text-gray-600 ml-3">Total (incl. VAT): </span><span className="font-semibold">{formatCurrency(total)}</span>
+                </div>
+              )
+            })()}
 
             {vatLockedByCategory ? (
               <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
@@ -1614,6 +1636,17 @@ const ExpensesPage = () => {
                 {...register('date', { required: 'Date is required' })}
               />
             </div>
+            {watch('withVat') && (() => {
+              const net = Number(watch('amount')) || 0
+              const vat = Math.round(net * 0.05 * 100) / 100
+              const total = net + vat
+              return (
+                <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm">
+                  <span className="text-gray-600">VAT (5%): </span><span className="font-medium">{formatCurrency(vat)}</span>
+                  <span className="text-gray-600 ml-3">Total (incl. VAT): </span><span className="font-semibold">{formatCurrency(total)}</span>
+                </div>
+              )
+            })()}
 
             {selectedExpense && selectedExpense.vatAmount == null && !vatLockedByCategory && (
               <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 mb-2 flex flex-wrap items-center gap-2">
