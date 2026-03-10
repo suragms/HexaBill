@@ -25,13 +25,15 @@ namespace HexaBill.Api.Modules.Billing
         private readonly IRouteScopeService _routeScopeService;
         private readonly AppDbContext _context;
         private readonly IEmailService _emailService;
+        private readonly ILogger<SalesController> _logger;
 
-        public SalesController(ISaleService saleService, IRouteScopeService routeScopeService, AppDbContext context, IEmailService emailService)
+        public SalesController(ISaleService saleService, IRouteScopeService routeScopeService, AppDbContext context, IEmailService emailService, ILogger<SalesController> logger)
         {
             _saleService = saleService;
             _routeScopeService = routeScopeService;
             _context = context;
             _emailService = emailService;
+            _logger = logger;
         }
 
         [HttpGet]
@@ -193,11 +195,8 @@ namespace HexaBill.Api.Modules.Billing
             }
             catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
             {
-                // Database constraint or column errors
                 var errorMessage = ex.InnerException?.Message ?? ex.Message;
-                Console.WriteLine($"❌ Database Error in CreateSale: {errorMessage}");
-                Console.WriteLine($"❌ Full Exception: {ex}");
-                
+                _logger.LogError(ex, "CreateSale DbUpdateException: {Inner}. Check for date_trunc/text column or constraint.", errorMessage);
                 return StatusCode(500, new ApiResponse<SaleDto>
                 {
                     Success = false,
@@ -207,14 +206,14 @@ namespace HexaBill.Api.Modules.Billing
             }
             catch (Exception ex)
             {
-                // Log full exception details for debugging
-                Console.WriteLine($"❌ CreateSale Error: {ex.Message}");
-                Console.WriteLine($"❌ Stack Trace: {ex.StackTrace}");
-                if (ex.InnerException != null)
+                // Log full chain so Render logs show real cause (e.g. date_trunc, NpgsqlDataReader GetInfo)
+                static string Flatten(Exception e)
                 {
-                    Console.WriteLine($"❌ Inner Exception: {ex.InnerException.Message}");
-                    Console.WriteLine($"❌ Inner Stack Trace: {ex.InnerException.StackTrace}");
+                    var s = e.Message;
+                    if (e.InnerException != null) s += " | Inner: " + Flatten(e.InnerException);
+                    return s;
                 }
+                _logger.LogError(ex, "CreateSale failed: {Message}. Chain: {Chain}", ex.Message, Flatten(ex));
                 
                 return StatusCode(500, new ApiResponse<SaleDto>
                 {

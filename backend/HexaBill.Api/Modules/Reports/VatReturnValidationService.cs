@@ -27,14 +27,16 @@ namespace HexaBill.Api.Modules.Reports
         }
 
         /// <summary>Returns true if the transaction date falls within any locked VAT return period for the tenant.</summary>
+        /// <remarks>Compares timestamps only (no .Date on column) to avoid date_trunc(unknown, text) when column was ever TEXT.</remarks>
         public async Task<bool> IsTransactionDateInLockedPeriodAsync(int tenantId, DateTime transactionDate)
         {
-            var date = transactionDate.Date;
+            var startOfDay = transactionDate.Date.ToUniversalTime();
+            var endOfDay = startOfDay.AddDays(1).AddTicks(-1);
             var locked = await _context.VatReturnPeriods
                 .AnyAsync(p => p.TenantId == tenantId
                     && p.Status == "Locked"
-                    && date >= p.PeriodStart.Date
-                    && date <= p.PeriodEnd.Date);
+                    && p.PeriodStart <= endOfDay
+                    && p.PeriodEnd >= startOfDay);
             return locked;
         }
 
