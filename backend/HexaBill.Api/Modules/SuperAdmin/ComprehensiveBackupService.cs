@@ -470,7 +470,8 @@ namespace HexaBill.Api.Modules.SuperAdmin
                 }
                 catch (Exception fallbackEx)
                 {
-                    _logger.LogError(fallbackEx, "PostgreSQL backup fallback via EF Core also failed");
+                    _logger.LogError(fallbackEx, "PostgreSQL backup fallback via EF Core also failed. Inner: {InnerMessage}",
+                        fallbackEx.InnerException?.Message);
                     throw new Exception($"PostgreSQL backup failed: {ex.Message}. Fallback also failed: {fallbackEx.Message}", fallbackEx);
                 }
             }

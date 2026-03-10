@@ -108,7 +108,8 @@ namespace HexaBill.Api.Modules.Customers
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                _logger.LogError(ex, "Failed to recalculate balance for customer {CustomerId}", customerId);
+                _logger.LogError(ex, "Failed to recalculate balance for customer {CustomerId}. Inner: {InnerMessage}, InnerInner: {InnerInnerMessage}",
+                    customerId, ex.InnerException?.Message, ex.InnerException?.InnerException?.Message);
                 throw;
             }
         }

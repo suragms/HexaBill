@@ -115,9 +115,9 @@ if (!string.IsNullOrWhiteSpace(envConnectionString))
 {
     connectionString = envConnectionString;
     usePostgreSQL = connectionString.Contains("Host=") || connectionString.Contains("Server=");
-    var includeErrorDetail = string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(Environment.GetEnvironmentVariable("INCLUDE_PG_ERROR_DETAIL"), "true", StringComparison.OrdinalIgnoreCase);
-    if (usePostgreSQL && includeErrorDetail && !connectionString.Contains("Include Error Detail", StringComparison.OrdinalIgnoreCase))
+    // Include Error Detail so Render/production logs show NOT NULL column name and Npgsql errors (opt-out with INCLUDE_PG_ERROR_DETAIL=false)
+    var omitErrorDetail = string.Equals(Environment.GetEnvironmentVariable("INCLUDE_PG_ERROR_DETAIL"), "false", StringComparison.OrdinalIgnoreCase);
+    if (usePostgreSQL && !omitErrorDetail && !connectionString.Contains("Include Error Detail", StringComparison.OrdinalIgnoreCase))
         connectionString += ";Include Error Detail=true";
     logger.LogInformation($"✅ Using ConnectionStrings__DefaultConnection from environment ({(usePostgreSQL ? "PostgreSQL" : "SQLite")})");
 }
@@ -141,10 +141,9 @@ else if (!string.IsNullOrWhiteSpace(databaseUrl))
         var password = firstColon >= 0 ? userInfo.Substring(firstColon + 1) : "";
         
         connectionString = $"Host={uri.Host};Port={dbPort};Database={uri.AbsolutePath.TrimStart('/')};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
-        // Include Error Detail in Development or when explicitly requested (needed to diagnose DbUpdateException)
-        var includeErrorDetail = string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(Environment.GetEnvironmentVariable("INCLUDE_PG_ERROR_DETAIL"), "true", StringComparison.OrdinalIgnoreCase);
-        if (includeErrorDetail && !connectionString.Contains("Include Error Detail", StringComparison.OrdinalIgnoreCase))
+        // Include Error Detail so Render logs show NOT NULL column and Npgsql reader errors (opt-out with INCLUDE_PG_ERROR_DETAIL=false)
+        var omitErrorDetail = string.Equals(Environment.GetEnvironmentVariable("INCLUDE_PG_ERROR_DETAIL"), "false", StringComparison.OrdinalIgnoreCase);
+        if (!omitErrorDetail && !connectionString.Contains("Include Error Detail", StringComparison.OrdinalIgnoreCase))
             connectionString += ";Include Error Detail=true";
         usePostgreSQL = true;
         logger.LogInformation("✅ Successfully parsed DATABASE_URL from Render (PostgreSQL)");
@@ -191,6 +190,14 @@ else
         logger.LogInformation($"✅ Using connection string from appsettings.json ({(usePostgreSQL ? "PostgreSQL" : "SQLite")})");
         logger.LogInformation($"Connection string length: {connectionString.Length}, starts with: {connectionString.Substring(0, Math.Min(50, connectionString.Length))}");
     }
+}
+
+// Ensure PostgreSQL gets full error detail in logs (NOT NULL column name, Npgsql reader errors). Opt-out: INCLUDE_PG_ERROR_DETAIL=false
+if (usePostgreSQL && !string.IsNullOrWhiteSpace(connectionString) && !connectionString.Contains("Include Error Detail", StringComparison.OrdinalIgnoreCase))
+{
+    var omitErrorDetail = string.Equals(Environment.GetEnvironmentVariable("INCLUDE_PG_ERROR_DETAIL"), "false", StringComparison.OrdinalIgnoreCase);
+    if (!omitErrorDetail)
+        connectionString += ";Include Error Detail=true";
 }
 
 // Production: PostgreSQL 1GB plan allows ~97-100 connections. Use 90 to stay under limit and avoid connection exhaustion.
