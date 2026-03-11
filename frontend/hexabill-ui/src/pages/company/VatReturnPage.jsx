@@ -62,12 +62,14 @@ const VatReturnPage = () => {
       }
     } catch (err) {
       const status = err?.response?.status
-      const msg = err?.response?.data?.message || err?.message || 'Failed to load VAT return'
+      const data = err?.response?.data
+      const msg = data?.message || err?.message || 'Failed to load VAT return'
+      const errors = data?.errors
       if (status === 403) {
         setLoadError('access')
         if (!err?._handledByInterceptor) toast.error("You don't have permission to view VAT Return.")
       } else {
-        setLoadError({ message: msg })
+        setLoadError({ message: msg, errors: Array.isArray(errors) ? errors : undefined })
         if (!err?._handledByInterceptor) toast.error(msg)
       }
       setVatReturn(null)
@@ -205,6 +207,9 @@ const VatReturnPage = () => {
           <div className="max-w-md mx-auto rounded-lg border border-red-200 bg-red-50 p-6">
             <p className="text-red-800 font-medium">Error loading VAT return</p>
             <p className="mt-2 text-sm text-red-700">{loadError.message}</p>
+            {(loadError.errors && loadError.errors.length > 0) && (
+              <p className="mt-2 text-xs text-red-600 font-mono">Details: {loadError.errors[0]}</p>
+            )}
             <button
               type="button"
               onClick={() => fetchVatReturn(true)}
@@ -345,19 +350,49 @@ const VatReturnPage = () => {
             </div>
           )}
 
+          {/* Top summary cards - Output VAT, Input VAT, Payable/Refund */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white rounded-lg border-2 border-blue-200 p-4">
+              <p className="text-xs font-medium text-blue-700 uppercase tracking-wide">Output VAT</p>
+              <p className="text-xl font-bold text-blue-900 mt-1">{formatCurrency(v.box1b)}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Box 1b – Standard rated sales VAT</p>
+            </div>
+            <div className="bg-white rounded-lg border-2 border-green-200 p-4">
+              <p className="text-xs font-medium text-green-700 uppercase tracking-wide">Input VAT</p>
+              <p className="text-xl font-bold text-green-900 mt-1">{formatCurrency(v.box12)}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Box 12 – Total recoverable</p>
+            </div>
+            <div className={`rounded-lg border-2 p-4 ${(v.box13a || 0) > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+              <p className={`text-xs font-medium uppercase tracking-wide ${(v.box13a || 0) > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                {(v.box13a || 0) > 0 ? 'VAT Payable' : 'VAT Refundable'}
+              </p>
+              <p className={`text-xl font-bold mt-1 ${(v.box13a || 0) > 0 ? 'text-red-900' : 'text-green-900'}`}>
+                {(v.box13a || 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b)}
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">{(v.box13a || 0) > 0 ? 'Box 13a' : 'Box 13b'}</p>
+            </div>
+          </div>
+
           {/* FTA 201 Summary */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">FTA Form 201 Summary</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <p className="text-sm text-gray-600 mb-3">Section 1 – Sales (Output VAT)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">1a Taxable (net)</p><p className="font-semibold">{formatCurrency(v.box1a)}</p></div>
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">1b VAT on taxable</p><p className="font-semibold">{formatCurrency(v.box1b)}</p></div>
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">2 Zero-rated</p><p className="font-semibold">{formatCurrency(v.box2)}</p></div>
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">3 Exempt</p><p className="font-semibold">{formatCurrency(v.box3)}</p></div>
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">4 Reverse charge</p><p className="font-semibold">{formatCurrency(v.box4)}</p></div>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Section 2 – Purchases (Input VAT)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">9b Recoverable input</p><p className="font-semibold">{formatCurrency(v.box9b)}</p></div>
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">10 Reverse ch. VAT</p><p className="font-semibold">{formatCurrency(v.box10)}</p></div>
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">11 Input adj.</p><p className="font-semibold">{formatCurrency(v.box11)}</p></div>
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">12 Total recoverable</p><p className="font-semibold">{formatCurrency(v.box12)}</p></div>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Section 3 – VAT summary (Payable / Refund)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
               <div className="border rounded-lg p-3 bg-primary-50"><p className="text-xs text-gray-500">13a Payable</p><p className="font-bold">{formatCurrency(v.box13a)}</p></div>
               <div className="border rounded-lg p-3 bg-green-50"><p className="text-xs text-gray-500">13b Refundable</p><p className="font-bold">{formatCurrency(v.box13b)}</p></div>
               <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">Petroleum excluded</p><p className="font-semibold">{formatCurrency(v.petroleumExcluded)}</p></div>

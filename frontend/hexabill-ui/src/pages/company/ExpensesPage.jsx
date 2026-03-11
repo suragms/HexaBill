@@ -227,6 +227,7 @@ const ExpensesPage = () => {
   const [editingCategoryVat, setEditingCategoryVat] = useState(null)
   const [filterNoVatOnly, setFilterNoVatOnly] = useState(false)
   const [showBulkVatModal, setShowBulkVatModal] = useState(false)
+  const [selectedExpenseIds, setSelectedExpenseIds] = useState([])
   const [bulkVatSubmitting, setBulkVatSubmitting] = useState(false)
 
   const {
@@ -323,6 +324,7 @@ const ExpensesPage = () => {
         setTotalPages(response.data.totalPages || 1)
 
         const total = expenseList.reduce((sum, expense) => sum + (expense.amount || 0), 0)
+        const totalVat = expenseList.reduce((sum, expense) => sum + (Number(expense.vatAmount) || 0), 0)
         const categoryTotals = expenseList.reduce((acc, expense) => {
           const cat = expense.categoryName || 'Other'
           acc[cat] = (acc[cat] || 0) + (expense.amount || 0)
@@ -331,6 +333,7 @@ const ExpensesPage = () => {
 
         setExpenseSummary({
           total,
+          totalVat,
           categoryTotals,
           averagePerDay: total / 30,
           topCategory: Object.keys(categoryTotals).length > 0
@@ -927,7 +930,7 @@ const ExpensesPage = () => {
 
         {/* Summary Cards - Mobile Responsive */}
         {expenseSummary && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
             <div className="bg-white rounded-xl border border-neutral-200 p-3 sm:p-4">
               <div className="flex items-center">
                 <TrendingDown className="h-5 w-5 sm:h-6 sm:w-6 lg:h-8 lg:w-8 text-red-600 flex-shrink-0" />
@@ -959,6 +962,18 @@ const ExpensesPage = () => {
                   <p className="text-xs sm:text-sm font-medium text-green-600">Top Category</p>
                   <p className="text-base sm:text-xl lg:text-2xl font-bold text-green-900 truncate">
                     {expenseSummary.topCategory}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-neutral-200 p-3 sm:p-4">
+              <div className="flex items-center">
+                <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 lg:h-8 lg:w-8 text-amber-600 flex-shrink-0" />
+                <div className="ml-2 sm:ml-3 lg:ml-4 min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-amber-600">Total VAT</p>
+                  <p className="text-base sm:text-xl lg:text-2xl font-bold text-amber-900 truncate">
+                    {formatCurrency(expenseSummary.totalVat ?? 0)}
                   </p>
                 </div>
               </div>
@@ -1103,6 +1118,60 @@ const ExpensesPage = () => {
           </div>
         )}
 
+        {/* Bulk selection bar */}
+        {!showAggregated && selectedExpenseIds.length > 0 && (
+          <div className="bg-primary-50 border border-primary-200 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium text-primary-800">{selectedExpenseIds.length} selected</span>
+            {isAdminOrOwner(user) && (
+              <>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const res = await expensesAPI.bulkSetClaimable({ expenseIds: selectedExpenseIds, isTaxClaimable: true })
+                      if (res?.success && res?.data) {
+                        toast.success(`Updated ${res.data.updated} expense(s) as VAT claimable`)
+                        setSelectedExpenseIds([])
+                        fetchExpenses()
+                      } else toast.error(res?.message || 'Update failed')
+                    } catch (err) {
+                      toast.error(err?.response?.data?.message || 'Update failed')
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"
+                >
+                  Mark as VAT claimable
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const res = await expensesAPI.bulkSetClaimable({ expenseIds: selectedExpenseIds, isTaxClaimable: false })
+                      if (res?.success && res?.data) {
+                        toast.success(`Updated ${res.data.updated} expense(s) as not claimable`)
+                        setSelectedExpenseIds([])
+                        fetchExpenses()
+                      } else toast.error(res?.message || 'Update failed')
+                    } catch (err) {
+                      toast.error(err?.response?.data?.message || 'Update failed')
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-neutral-600 text-white text-sm font-medium rounded-lg hover:bg-neutral-700"
+                >
+                  Mark as not claimable
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setSelectedExpenseIds([])}
+              className="px-3 py-1.5 border border-neutral-300 rounded-lg text-sm text-gray-700 hover:bg-neutral-100"
+            >
+              Clear selection
+            </button>
+          </div>
+        )}
+
         {/* Expenses Table - Tally Ledger Style */}
         {!showAggregated && (
           <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
@@ -1115,6 +1184,17 @@ const ExpensesPage = () => {
               <table className="min-w-full text-xs">
                 <thead className="bg-neutral-50">
                   <tr>
+                    <th className="px-2 py-3 text-center font-semibold text-gray-700 border-r border-neutral-200 w-10">
+                      <input
+                        type="checkbox"
+                        checked={displayExpenses.length > 0 && displayExpenses.every(e => selectedExpenseIds.includes(e.id))}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedExpenseIds(displayExpenses.map(ex => ex.id))
+                          else setSelectedExpenseIds(prev => prev.filter(id => !displayExpenses.some(ex => ex.id === id)))
+                        }}
+                        className="rounded border-gray-300"
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Category</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Branch</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Route</th>
@@ -1130,7 +1210,7 @@ const ExpensesPage = () => {
                 <tbody className="divide-y divide-neutral-100">
                   {displayExpenses.length === 0 ? (
                     <tr>
-                      <td colSpan="11" className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan="12" className="px-6 py-8 text-center text-gray-500">
                         {user && !isAdminOrOwner(user)
                           ? 'No expenses in your assigned branch(es) for this period.'
                           : 'No expenses found'}
@@ -1139,6 +1219,17 @@ const ExpensesPage = () => {
                   ) : (
                     displayExpenses.map((expense) => (
                       <tr key={expense.id} className="hover:bg-neutral-50">
+                        <td className="px-2 py-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedExpenseIds.includes(expense.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedExpenseIds(prev => [...prev, expense.id])
+                              else setSelectedExpenseIds(prev => prev.filter(id => id !== expense.id))
+                            }}
+                            className="rounded border-gray-300"
+                          />
+                        </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <div
@@ -1243,7 +1334,17 @@ const ExpensesPage = () => {
                 displayExpenses.map((expense) => (
                   <div key={expense.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                     <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
+                      <div className="flex items-start gap-2 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedExpenseIds.includes(expense.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedExpenseIds(prev => [...prev, expense.id])
+                            else setSelectedExpenseIds(prev => prev.filter(id => id !== expense.id))
+                          }}
+                          className="mt-1 rounded border-gray-300"
+                        />
+                        <div className="flex-1 min-w-0">
                         <div className="flex items-center mb-1">
                           <div
                             className="w-3 h-3 rounded-full mr-2 flex-shrink-0"
@@ -1279,6 +1380,7 @@ const ExpensesPage = () => {
                               <FileText className="h-3 w-3" />
                             </button>
                           )}
+                        </div>
                         </div>
                       </div>
                       <div className="text-right ml-2">

@@ -796,6 +796,7 @@ namespace HexaBill.Api.Modules.Purchases
 
             // Calculate totals
             var totalAmount = purchases.Sum(p => p.TotalAmount);
+            var totalVat = purchases.Sum(p => p.VatTotal ?? 0);
             var totalCount = purchases.Count;
             var totalItems = purchases.Sum(p => p.Items.Count);
 
@@ -870,6 +871,7 @@ namespace HexaBill.Api.Modules.Purchases
             return new PurchaseAnalyticsDto
             {
                 TotalAmount = totalAmount,
+                TotalVat = totalVat,
                 TotalCount = totalCount,
                 TotalItems = totalItems,
                 TodayTotal = todayTotal,
@@ -989,6 +991,7 @@ namespace HexaBill.Api.Modules.Purchases
     public class PurchaseAnalyticsDto
     {
         public decimal TotalAmount { get; set; }
+        public decimal TotalVat { get; set; }
         public int TotalCount { get; set; }
         public int TotalItems { get; set; }
         public decimal TodayTotal { get; set; }

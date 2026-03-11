@@ -626,7 +626,7 @@ const PurchasesPage = () => {
         {/* Analytics Dashboard - Mobile: compact 2 cards + "More stats" toggle; Desktop: full */}
         {analytics && (
           <>
-            <div className="mb-4 grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+            <div className="mb-4 grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
               {/* Today's Total */}
               <div className="bg-gradient-to-br from-primary-50 to-primary-100 rounded-lg border-2 border-primary-300 p-2 sm:p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -719,6 +719,16 @@ const PurchasesPage = () => {
                 ) : (
                   <div className="text-sm text-primary-500">No purchases this week</div>
                 )}
+              </div>
+
+              {/* Total VAT */}
+              <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border-2 border-amber-300 p-2 sm:p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs sm:text-sm font-bold text-amber-900">Total VAT</h3>
+                  <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
+                </div>
+                <div className="text-xl sm:text-2xl font-bold text-amber-700">AED {(analytics.totalVat ?? 0).toFixed(2)}</div>
+                <div className="text-xs text-amber-600 mt-1">VAT in period</div>
               </div>
             </div>
 

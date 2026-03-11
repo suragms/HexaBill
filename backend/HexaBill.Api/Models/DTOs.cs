@@ -674,6 +674,12 @@ namespace HexaBill.Api.Models
         public List<string> Errors { get; set; } = new();
     }
 
+    public class BulkSetClaimableRequest
+    {
+        public List<int> ExpenseIds { get; set; } = new();
+        public bool IsTaxClaimable { get; set; }
+    }
+
     public class RecurringExpenseDto
     {
         public int Id { get; set; }
@@ -1546,6 +1552,10 @@ namespace HexaBill.Api.Models
         public int? SaleId { get; set; }
         public int? PaymentId { get; set; }
         public int? ReturnId { get; set; }
+        /// <summary>VAT amount (for Sale/Return; 0 for Payment). Gulf VAT reporting.</summary>
+        public decimal VatTotal { get; set; }
+        /// <summary>Net amount before VAT (for Sale/Return; 0 for Payment).</summary>
+        public decimal Subtotal { get; set; }
     }
 
     public class SalesLedgerReportDto
@@ -1565,6 +1575,12 @@ namespace HexaBill.Api.Models
         public decimal NetSales { get; set; }
         public decimal RefundsPaid { get; set; }
         public decimal NetCashIn { get; set; }
+        /// <summary>Total VAT from sales (output VAT). Gulf VAT reporting.</summary>
+        public decimal TotalSalesVat { get; set; }
+        /// <summary>Total VAT from returns (reduces output VAT).</summary>
+        public decimal TotalReturnsVat { get; set; }
+        /// <summary>Net output VAT (sales VAT minus returns VAT).</summary>
+        public decimal TotalVat { get; set; }
     }
 
     /// <summary>FTA VAT 201 Return - UAE quarterly VAT filing format.</summary>

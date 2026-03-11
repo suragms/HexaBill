@@ -539,6 +539,25 @@ namespace HexaBill.Api.Modules.Expenses
             }
         }
 
+        [HttpPost("bulk-set-claimable")]
+        [Authorize(Roles = "Admin,Owner")]
+        public async Task<ActionResult<ApiResponse<BulkVatUpdateResult>>> BulkSetClaimable([FromBody] BulkSetClaimableRequest request)
+        {
+            try
+            {
+                var tenantId = CurrentTenantId;
+                if (request == null || request.ExpenseIds == null || request.ExpenseIds.Count == 0)
+                    return BadRequest(new ApiResponse<BulkVatUpdateResult> { Success = false, Message = "Request body with expenseIds required" });
+                var result = await _expenseService.BulkSetClaimableAsync(tenantId, request);
+                return Ok(new ApiResponse<BulkVatUpdateResult> { Success = true, Data = result });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "BulkSetClaimable failed");
+                return StatusCode(500, new ApiResponse<BulkVatUpdateResult> { Success = false, Message = ex.Message });
+            }
+        }
+
         [HttpPost("{id}/attachment")]
         [RequestSizeLimit(10 * 1024 * 1024)] // 10 MB
         public async Task<ActionResult<ApiResponse<string>>> UploadAttachment(int id, IFormFile file)

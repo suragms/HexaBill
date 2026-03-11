@@ -132,7 +132,10 @@ const SalesLedgerPage = () => {
           customerBalance: Number(entry.customerBalance || entry.CustomerBalance || 0),
           planDate: entry.planDate ? new Date(entry.planDate) : null,
           saleId: entry.saleId || entry.SaleId,
-          paymentId: entry.paymentId || entry.PaymentId
+          paymentId: entry.paymentId || entry.PaymentId,
+          returnId: entry.returnId ?? entry.ReturnId,
+          vatTotal: Number(entry.vatTotal ?? entry.VatTotal ?? 0),
+          subtotal: Number(entry.subtotal ?? entry.Subtotal ?? 0)
         }))
 
         setReportData({
@@ -326,6 +329,12 @@ const SalesLedgerPage = () => {
       // Total pending = sum of unpaid amounts from sales (realPending field)
       const totalPending = salesEntries.reduce((sum, e) => sum + (e.realPending || 0), 0)
       
+      // VAT: output VAT from sales minus returns for this customer
+      const returnEntriesForCustomer = entries.filter(e => e.type === 'Return')
+      const totalSalesVat = salesEntries.reduce((sum, e) => sum + (e.vatTotal || 0), 0)
+      const totalReturnsVat = returnEntriesForCustomer.reduce((sum, e) => sum + (e.vatTotal || 0), 0)
+      const totalVat = totalSalesVat - totalReturnsVat
+      
       // Balance = use the last entry's customerBalance from backend (most accurate, already calculated correctly)
       // This ensures consistency with backend balance calculation
       const balance = lastEntry?.customerBalance ?? (totalSales - totalPayments)
@@ -338,7 +347,8 @@ const SalesLedgerPage = () => {
           totalPayments,
           totalPending,
           totalInvoices: salesEntries.length,
-          balance // Use backend-calculated balance
+          balance, // Use backend-calculated balance
+          totalVat
         }
       }
     })
@@ -403,6 +413,11 @@ const SalesLedgerPage = () => {
   // Total Invoices = Count of sales entries (not transactions)
   const totalInvoices = salesEntries.length
 
+  // 5. VAT (Gulf VAT reporting): output VAT from sales minus returns
+  const totalSalesVat = salesEntries.reduce((sum, e) => sum + (e.vatTotal || 0), 0)
+  const totalReturnsVat = returnEntries.reduce((sum, e) => sum + (e.vatTotal || 0), 0)
+  const totalVat = totalSalesVat - totalReturnsVat
+
   const filteredSummary = {
     totalSales,
     totalReturns,
@@ -411,7 +426,10 @@ const SalesLedgerPage = () => {
     totalRealPending,
     totalRealGotPayment: totalPayments,
     pendingBalance,
-    totalInvoices
+    totalInvoices,
+    totalSalesVat,
+    totalReturnsVat,
+    totalVat
   }
 
   const handleShareInvoiceWhatsApp = async (entry) => {
@@ -506,10 +524,11 @@ const SalesLedgerPage = () => {
       return
     }
     try {
-      const headers = ['Date', 'Type', 'Invoice No', 'Customer', 'Payment Mode', 'Bill Amount', 'Paid Amount', 'Pending', 'Status', 'Balance']
+      const headers = ['Date', 'Type', 'Invoice No', 'Customer', 'Payment Mode', 'Bill Amount', 'VAT', 'Paid Amount', 'Pending', 'Status', 'Balance']
       const rows = filteredLedger.map(entry => {
         const dateStr = new Date(entry.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
         const billAmt = entry.type === 'Sale' ? (entry.grandTotal || 0) : entry.type === 'Payment' ? (entry.realGotPayment || 0) : 0
+        const vatAmt = entry.type === 'Payment' ? 0 : (entry.vatTotal || 0)
         const paidAmt = entry.type === 'Sale' ? (entry.paidAmount || 0) : entry.type === 'Payment' ? (entry.realGotPayment || 0) : 0
         const pending = entry.type === 'Sale' ? (entry.realPending || 0) : 0
         return [
@@ -519,6 +538,7 @@ const SalesLedgerPage = () => {
           entry.customerName || 'Cash Customer',
           entry.paymentMode || '-',
           billAmt.toFixed(2),
+          vatAmt.toFixed(2),
           paidAmt.toFixed(2),
           pending.toFixed(2),
           entry.status || 'Unpaid',
@@ -752,7 +772,7 @@ const SalesLedgerPage = () => {
       )}
 
       {/* Summary Cards - Fixed */}
-      <div className="flex-shrink-0 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-1.5 md:gap-2 lg:gap-3 px-2 md:px-4 py-2 md:py-3 bg-white border-b border-gray-200">
+      <div className="flex-shrink-0 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-9 gap-1.5 md:gap-2 lg:gap-3 px-2 md:px-4 py-2 md:py-3 bg-white border-b border-gray-200">
         <div className="bg-blue-50 rounded p-1.5 md:p-2 lg:p-3 border-l-2 md:border-l-4 border-blue-500">
           <div className="text-xs md:text-xs lg:text-xs text-gray-600 uppercase mb-0.5">Sales</div>
           <div className="text-sm md:text-base lg:text-lg font-bold text-gray-900 truncate">
@@ -798,6 +818,12 @@ const SalesLedgerPage = () => {
             {filteredSummary.totalInvoices || 0}
           </div>
         </div>
+        <div className="bg-teal-50 rounded p-1.5 md:p-2 lg:p-3 border-l-2 md:border-l-4 border-teal-500" title="Output VAT (Sales minus Returns)">
+          <div className="text-xs md:text-xs lg:text-xs text-gray-600 uppercase mb-0.5">Net VAT</div>
+          <div className="text-sm md:text-base lg:text-lg font-bold text-teal-700 truncate">
+            {formatCurrency(filteredSummary.totalVat ?? 0)}
+          </div>
+        </div>
         <div className="bg-indigo-50 rounded p-1.5 md:p-2 lg:p-3 border-l-2 md:border-l-4 border-indigo-500">
           <div className="text-xs md:text-xs lg:text-xs text-gray-600 uppercase mb-0.5">Total</div>
           <div className="text-sm md:text-base lg:text-lg font-bold text-indigo-600">
@@ -837,6 +863,9 @@ const SalesLedgerPage = () => {
                     Bill Amount
                   </th>
                   <th className="px-2 lg:px-3 py-2 text-right text-xs lg:text-xs font-bold text-gray-700 uppercase whitespace-nowrap border-r border-gray-300">
+                    VAT
+                  </th>
+                  <th className="px-2 lg:px-3 py-2 text-right text-xs lg:text-xs font-bold text-gray-700 uppercase whitespace-nowrap border-r border-gray-300">
                     Paid Amount
                   </th>
                   <th className="px-2 lg:px-3 py-2 text-right text-xs lg:text-xs font-bold text-gray-700 uppercase whitespace-nowrap border-r border-gray-300">
@@ -856,7 +885,7 @@ const SalesLedgerPage = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredLedger.length === 0 ? (
                   <tr>
-                    <td colSpan="10" className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan="12" className="px-4 py-8 text-center text-gray-500">
                       <FileText className="w-12 h-12 mx-auto mb-2 text-gray-300" />
                       <p>No transactions found matching the filters</p>
                     </td>
@@ -883,6 +912,9 @@ const SalesLedgerPage = () => {
                               </td>
                               <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-sm font-bold text-blue-700 border-r border-gray-300">
                                 {formatCurrency(prevCustomerGroup.subtotal.totalSales)}
+                              </td>
+                              <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-sm font-bold text-teal-700 border-r border-gray-300">
+                                {formatCurrency(prevCustomerGroup.subtotal.totalVat ?? 0)}
                               </td>
                               <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-sm font-bold text-green-700 border-r border-gray-300">
                                 {formatCurrency(prevCustomerGroup.subtotal.totalPayments)}
@@ -978,6 +1010,10 @@ const SalesLedgerPage = () => {
                                 ? formatCurrency(entry.realGotPayment || 0)
                                 : '-'}
                         </td>
+                        {/* VAT - Sale/Return: vatTotal; Payment: - */}
+                        <td className="px-2 lg:px-3 py-1.5 lg:py-2 whitespace-nowrap text-xs lg:text-sm text-right font-medium text-teal-700 border-r border-gray-200">
+                          {entry.type === 'Payment' ? '-' : (entry.vatTotal > 0 ? formatCurrency(entry.vatTotal) : '-')}
+                        </td>
                         {/* Paid Amount - Sales: paid; Return: return amount (credit); Payment: amount */}
                         <td className="px-2 lg:px-3 py-1.5 lg:py-2 whitespace-nowrap text-xs lg:text-sm text-right font-semibold text-green-600 border-r border-gray-200">
                           {entry.type === 'Sale'
@@ -1045,6 +1081,9 @@ const SalesLedgerPage = () => {
                             <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-sm font-bold text-blue-700 border-r border-gray-300">
                               {formatCurrency(lastCustomerGroup.subtotal.totalSales)}
                             </td>
+                            <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-sm font-bold text-teal-700 border-r border-gray-300">
+                              {formatCurrency(lastCustomerGroup.subtotal.totalVat ?? 0)}
+                            </td>
                             <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-sm font-bold text-green-700 border-r border-gray-300">
                               {formatCurrency(lastCustomerGroup.subtotal.totalPayments)}
                             </td>
@@ -1068,7 +1107,7 @@ const SalesLedgerPage = () => {
                 )}
                 {hasMore && (
                   <tr>
-                    <td colSpan="10" className="px-4 py-3 text-center bg-gray-50">
+                    <td colSpan="12" className="px-4 py-3 text-center bg-gray-50">
                       <button
                         onClick={handleLoadMore}
                         className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-md hover:bg-primary-700 transition-colors"
@@ -1095,6 +1134,10 @@ const SalesLedgerPage = () => {
                   <td className="px-2 lg:px-3 py-3 text-right text-xs lg:text-sm font-bold text-blue-700 border-r border-gray-300">
                     {formatCurrency(filteredSummary.totalSales)}
                   </td>
+                  {/* VAT Total */}
+                  <td className="px-2 lg:px-3 py-3 text-right text-xs lg:text-sm font-bold text-teal-700 border-r border-gray-300">
+                    {formatCurrency(filteredSummary.totalVat ?? 0)}
+                  </td>
                   {/* Paid Amount Total */}
                   <td className="px-2 lg:px-3 py-3 text-right text-xs lg:text-sm font-bold text-green-700 border-r border-gray-300">
                     {formatCurrency(filteredSummary.totalPayments)}
@@ -1113,6 +1156,7 @@ const SalesLedgerPage = () => {
                       {formatBalance(filteredSummary.pendingBalance)}
                     </span>
                   </td>
+                  <td className="px-2 lg:px-3 py-3" />
                 </tr>
                 {/* Second Total Row - Summary */}
                 <tr className="bg-yellow-50">
@@ -1124,6 +1168,9 @@ const SalesLedgerPage = () => {
                   </td>
                   <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-xs font-semibold text-blue-700 border-r border-gray-300">
                     Sales: {formatCurrency(filteredSummary.totalSales)}
+                  </td>
+                  <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-xs font-semibold text-teal-700 border-r border-gray-300">
+                    VAT: {formatCurrency(filteredSummary.totalVat ?? 0)}
                   </td>
                   <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-xs font-semibold text-green-700 border-r border-gray-300">
                     Paid: {formatCurrency(filteredSummary.totalPayments)}
@@ -1137,6 +1184,7 @@ const SalesLedgerPage = () => {
                   <td className="px-2 lg:px-3 py-2 text-right text-xs lg:text-xs font-semibold text-orange-700 border-r border-gray-300">
                     Net: {formatBalance(filteredSummary.pendingBalance)}
                   </td>
+                  <td className="px-2 lg:px-3 py-2" />
                 </tr>
               </tfoot>
             </table>
@@ -1196,6 +1244,10 @@ const SalesLedgerPage = () => {
                                 <div className="font-bold text-blue-700">{formatCurrency(prevCustomerGroup.subtotal.totalSales)}</div>
                               </div>
                               <div>
+                                <div className="text-gray-600">VAT:</div>
+                                <div className="font-bold text-teal-700">{formatCurrency(prevCustomerGroup.subtotal.totalVat ?? 0)}</div>
+                              </div>
+                              <div>
                                 <div className="text-gray-600">Paid:</div>
                                 <div className="font-bold text-green-700">{formatCurrency(prevCustomerGroup.subtotal.totalPayments)}</div>
                               </div>
@@ -1246,9 +1298,17 @@ const SalesLedgerPage = () => {
                         <div className="font-bold text-blue-600">
                           {entry.type === 'Sale'
                             ? formatCurrency(entry.grandTotal || 0)
-                            : formatCurrency(entry.realGotPayment || 0)}
+                            : entry.type === 'Return'
+                              ? formatCurrency(entry.grandTotal || 0)
+                              : formatCurrency(entry.realGotPayment || 0)}
                         </div>
                       </div>
+                      {(entry.vatTotal > 0 && entry.type !== 'Payment') && (
+                        <div>
+                          <div className="text-xs text-gray-500 uppercase">VAT</div>
+                          <div className="font-bold text-teal-700">{formatCurrency(entry.vatTotal)}</div>
+                        </div>
+                      )}
                       <div>
                         <div className="text-xs text-gray-500 uppercase">Paid</div>
                         <div className="font-bold text-green-600">

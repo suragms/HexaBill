@@ -2279,15 +2279,15 @@ namespace HexaBill.Api.Modules.Reports
             };
         }
 
-        /// <summary>Raw SQL to load returns for ledger when SaleReturns.BranchId may not exist. Only selects Id, ReturnDate, ReturnNo, CustomerId, GrandTotal.</summary>
-        private async Task<List<(int Id, DateTime ReturnDate, string? ReturnNo, int? CustomerId, decimal GrandTotal)>> GetSalesLedgerReturnsRawAsync(int tenantId, DateTime from, DateTime to, int? staffId)
+        /// <summary>Raw SQL to load returns for ledger when SaleReturns.BranchId may not exist. Selects Id, ReturnDate, ReturnNo, CustomerId, GrandTotal, VatTotal.</summary>
+        private async Task<List<(int Id, DateTime ReturnDate, string? ReturnNo, int? CustomerId, decimal GrandTotal, decimal VatTotal)>> GetSalesLedgerReturnsRawAsync(int tenantId, DateTime from, DateTime to, int? staffId)
         {
             var conn = _context.Database.GetDbConnection();
             var wasOpen = conn.State == System.Data.ConnectionState.Open;
             if (!wasOpen) await conn.OpenAsync();
             try
             {
-                string sql = @"SELECT ""Id"", ""ReturnDate"", ""ReturnNo"", ""CustomerId"", ""GrandTotal"" FROM ""SaleReturns"" WHERE ""TenantId"" = @p0 AND ""ReturnDate"" >= @p1 AND ""ReturnDate"" < @p2";
+                string sql = @"SELECT ""Id"", ""ReturnDate"", ""ReturnNo"", ""CustomerId"", ""GrandTotal"", COALESCE(""VatTotal"", 0) FROM ""SaleReturns"" WHERE ""TenantId"" = @p0 AND ""ReturnDate"" >= @p1 AND ""ReturnDate"" < @p2";
                 if (staffId.HasValue) sql += " AND \"CreatedBy\" = @p3";
                 sql += " ORDER BY \"ReturnDate\", \"Id\"";
                 using var cmd = conn.CreateCommand();
@@ -2296,7 +2296,7 @@ namespace HexaBill.Api.Modules.Reports
                 var p1 = cmd.CreateParameter(); p1.ParameterName = "p1"; p1.Value = from; cmd.Parameters.Add(p1);
                 var p2 = cmd.CreateParameter(); p2.ParameterName = "p2"; p2.Value = to; cmd.Parameters.Add(p2);
                 if (staffId.HasValue) { var p3 = cmd.CreateParameter(); p3.ParameterName = "p3"; p3.Value = staffId.Value; cmd.Parameters.Add(p3); }
-                var list = new List<(int Id, DateTime ReturnDate, string? ReturnNo, int? CustomerId, decimal GrandTotal)>();
+                var list = new List<(int Id, DateTime ReturnDate, string? ReturnNo, int? CustomerId, decimal GrandTotal, decimal VatTotal)>();
                 using (var reader = await cmd.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -2306,7 +2306,8 @@ namespace HexaBill.Api.Modules.Reports
                             reader.GetDateTime(1),
                             reader.IsDBNull(2) ? null : reader.GetString(2),
                             reader.IsDBNull(3) ? (int?)null : reader.GetInt32(3),
-                            reader.GetDecimal(4)));
+                            reader.GetDecimal(4),
+                            reader.IsDBNull(5) ? 0m : reader.GetDecimal(5)));
                     }
                 }
                 return list;
@@ -2314,15 +2315,15 @@ namespace HexaBill.Api.Modules.Reports
             finally { if (!wasOpen) await conn.CloseAsync(); }
         }
 
-        /// <summary>Raw SQL to load sales for ledger when Sales.BranchId may not exist. Only selects Id, InvoiceNo, InvoiceDate, CustomerId, GrandTotal.</summary>
-        private async Task<List<(int Id, string InvoiceNo, DateTime InvoiceDate, int? CustomerId, decimal GrandTotal)>> GetSalesLedgerSalesRawAsync(int tenantId, DateTime from, DateTime to, int? staffId)
+        /// <summary>Raw SQL to load sales for ledger when Sales.BranchId may not exist. Selects Id, InvoiceNo, InvoiceDate, CustomerId, GrandTotal, Subtotal, VatTotal.</summary>
+        private async Task<List<(int Id, string InvoiceNo, DateTime InvoiceDate, int? CustomerId, decimal GrandTotal, decimal Subtotal, decimal VatTotal)>> GetSalesLedgerSalesRawAsync(int tenantId, DateTime from, DateTime to, int? staffId)
         {
             var conn = _context.Database.GetDbConnection();
             var wasOpen = conn.State == System.Data.ConnectionState.Open;
             if (!wasOpen) await conn.OpenAsync();
             try
             {
-                string sql = @"SELECT ""Id"", ""InvoiceNo"", ""InvoiceDate"", ""CustomerId"", ""GrandTotal"" FROM ""Sales"" WHERE ""TenantId"" = @p0 AND ""IsDeleted"" = false AND ""InvoiceDate"" >= @p1 AND ""InvoiceDate"" < @p2";
+                string sql = @"SELECT ""Id"", ""InvoiceNo"", ""InvoiceDate"", ""CustomerId"", ""GrandTotal"", COALESCE(""Subtotal"", 0), COALESCE(""VatTotal"", 0) FROM ""Sales"" WHERE ""TenantId"" = @p0 AND ""IsDeleted"" = false AND ""InvoiceDate"" >= @p1 AND ""InvoiceDate"" < @p2";
                 if (staffId.HasValue) sql += " AND \"CreatedBy\" = @p3";
                 sql += " ORDER BY \"InvoiceDate\", \"Id\"";
                 using var cmd = conn.CreateCommand();
@@ -2331,13 +2332,13 @@ namespace HexaBill.Api.Modules.Reports
                 var p1 = cmd.CreateParameter(); p1.ParameterName = "p1"; p1.Value = from; cmd.Parameters.Add(p1);
                 var p2 = cmd.CreateParameter(); p2.ParameterName = "p2"; p2.Value = to; cmd.Parameters.Add(p2);
                 if (staffId.HasValue) { var p3 = cmd.CreateParameter(); p3.ParameterName = "p3"; p3.Value = staffId.Value; cmd.Parameters.Add(p3); }
-                var list = new List<(int Id, string InvoiceNo, DateTime InvoiceDate, int? CustomerId, decimal GrandTotal)>();
+                var list = new List<(int Id, string InvoiceNo, DateTime InvoiceDate, int? CustomerId, decimal GrandTotal, decimal Subtotal, decimal VatTotal)>();
                 using (var reader = await cmd.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
                     {
                         var customerId = reader.IsDBNull(3) ? (int?)null : reader.GetInt32(3);
-                        list.Add((reader.GetInt32(0), reader.IsDBNull(1) ? "" : reader.GetString(1), reader.GetDateTime(2), customerId, reader.GetDecimal(4)));
+                        list.Add((reader.GetInt32(0), reader.IsDBNull(1) ? "" : reader.GetString(1), reader.GetDateTime(2), customerId, reader.GetDecimal(4), reader.IsDBNull(5) ? 0m : reader.GetDecimal(5), reader.IsDBNull(6) ? 0m : reader.GetDecimal(6)));
                     }
                 }
                 return list;
@@ -2350,7 +2351,7 @@ namespace HexaBill.Api.Modules.Reports
             var from = (fromDate ?? DateTime.UtcNow.Date.AddDays(-365)).ToUtcKind();
             var to = (toDate ?? DateTime.UtcNow.Date).AddDays(1).AddTicks(-1).ToUtcKind();
             // PRODUCTION FIX: On PostgreSQL use raw SQL for sales list so we never reference BranchId (column may not exist).
-            List<(int Id, string InvoiceNo, DateTime InvoiceDate, int? CustomerId, decimal GrandTotal)> sales;
+            List<(int Id, string InvoiceNo, DateTime InvoiceDate, int? CustomerId, decimal GrandTotal, decimal Subtotal, decimal VatTotal)> sales;
             if (_context.Database.IsNpgsql())
             {
                 sales = await GetSalesLedgerSalesRawAsync(tenantId, from, to, staffId);
@@ -2363,9 +2364,9 @@ namespace HexaBill.Api.Modules.Reports
                 var projected = await salesQuery
                     .OrderBy(s => s.InvoiceDate)
                     .ThenBy(s => s.Id)
-                    .Select(s => new { s.Id, s.InvoiceNo, s.InvoiceDate, s.CustomerId, s.GrandTotal })
+                    .Select(s => new { s.Id, s.InvoiceNo, s.InvoiceDate, s.CustomerId, s.GrandTotal, Subtotal = s.Subtotal ?? 0, VatTotal = s.VatTotal ?? 0 })
                     .ToListAsync();
-                sales = projected.Select(x => (x.Id, x.InvoiceNo, x.InvoiceDate, x.CustomerId, x.GrandTotal)).ToList();
+                sales = projected.Select(x => (x.Id, x.InvoiceNo, x.InvoiceDate, x.CustomerId, x.GrandTotal, x.Subtotal, x.VatTotal)).ToList();
             }
 
             var saleIds = sales.Select(s => s.Id).ToHashSet();
@@ -2381,7 +2382,7 @@ namespace HexaBill.Api.Modules.Reports
                 .ToListAsync();
 
             // Get returns in same date range. On PostgreSQL use raw SQL so we never select BranchId/RouteId (columns may not exist).
-            List<(int Id, DateTime ReturnDate, string? ReturnNo, int? CustomerId, decimal GrandTotal)> returns;
+            List<(int Id, DateTime ReturnDate, string? ReturnNo, int? CustomerId, decimal GrandTotal, decimal VatTotal)> returns;
             if (_context.Database.IsNpgsql())
             {
                 returns = await GetSalesLedgerReturnsRawAsync(tenantId, from, to, staffId);
@@ -2393,9 +2394,9 @@ namespace HexaBill.Api.Modules.Reports
                 if (staffId.HasValue) returnsQuery = returnsQuery.Where(r => r.CreatedBy == staffId.Value);
                 var projected = await returnsQuery
                     .OrderBy(r => r.ReturnDate).ThenBy(r => r.Id)
-                    .Select(r => new { r.Id, r.ReturnDate, r.ReturnNo, r.CustomerId, r.GrandTotal })
+                    .Select(r => new { r.Id, r.ReturnDate, r.ReturnNo, r.CustomerId, r.GrandTotal, VatTotal = r.VatTotal ?? 0 })
                     .ToListAsync();
-                returns = projected.Select(x => (x.Id, x.ReturnDate, (string?)x.ReturnNo, x.CustomerId, x.GrandTotal)).ToList();
+                returns = projected.Select(x => (x.Id, x.ReturnDate, (string?)x.ReturnNo, x.CustomerId, x.GrandTotal, x.VatTotal)).ToList();
             }
 
             // Get payment totals per sale for status calculation (exclude refunds)
@@ -2485,7 +2486,9 @@ namespace HexaBill.Api.Modules.Reports
                     Status = status,
                     CustomerBalance = customerBalances[customerKey],
                     PlanDate = planDate,
-                    SaleId = sale.Id
+                    SaleId = sale.Id,
+                    Subtotal = sale.Subtotal,
+                    VatTotal = sale.VatTotal
                 });
             }
 
@@ -2533,7 +2536,9 @@ namespace HexaBill.Api.Modules.Reports
                     CustomerBalance = customerBalances[paymentCustomerKey],
                     PlanDate = null, // Payments don't have plan dates
                     PaymentId = payment.Id,
-                    SaleId = payment.SaleId
+                    SaleId = payment.SaleId,
+                    Subtotal = 0,
+                    VatTotal = 0
                 });
             }
 
@@ -2564,7 +2569,9 @@ namespace HexaBill.Api.Modules.Reports
                     Status = "Returned",
                     CustomerBalance = customerBalances[customerKey],
                     PlanDate = null,
-                    ReturnId = ret.Id
+                    ReturnId = ret.Id,
+                    Subtotal = 0,
+                    VatTotal = ret.VatTotal
                 });
             }
 
@@ -2632,7 +2639,10 @@ namespace HexaBill.Api.Modules.Reports
                     TotalReturns = totalReturns,
                     NetSales = netSales,
                     RefundsPaid = refundsPaid,
-                    NetCashIn = netCashIn
+                    NetCashIn = netCashIn,
+                    TotalSalesVat = sales.Sum(s => s.VatTotal),
+                    TotalReturnsVat = returns.Sum(r => r.VatTotal),
+                    TotalVat = sales.Sum(s => s.VatTotal) - returns.Sum(r => r.VatTotal)
                 }
             };
         }

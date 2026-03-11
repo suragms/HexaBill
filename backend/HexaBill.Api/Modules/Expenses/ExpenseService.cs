@@ -24,6 +24,7 @@ namespace HexaBill.Api.Modules.Expenses
         Task<bool> DeleteExpenseAsync(int id, int userId, int tenantId);
         Task<List<string>> GetExpenseCategoriesAsync(int tenantId);
         Task<BulkVatUpdateResult> BulkVatUpdateAsync(int tenantId, BulkVatUpdateRequest request);
+        Task<BulkVatUpdateResult> BulkSetClaimableAsync(int tenantId, BulkSetClaimableRequest request);
     }
 
     public class ExpenseService : IExpenseService
@@ -739,6 +740,45 @@ namespace HexaBill.Api.Modules.Expenses
                     result.Errors.Add($"Expense ID {expense.Id}: {ex.Message}");
                 }
             }
+            await _context.SaveChangesAsync();
+            return result;
+        }
+
+        public async Task<BulkVatUpdateResult> BulkSetClaimableAsync(int tenantId, BulkSetClaimableRequest request)
+        {
+            var result = new BulkVatUpdateResult();
+            if (request?.ExpenseIds == null || request.ExpenseIds.Count == 0)
+                return result;
+
+            var expenses = await _context.Expenses
+                .Where(e => e.TenantId == tenantId && request.ExpenseIds.Contains(e.Id))
+                .ToListAsync();
+
+            var isClaimable = request.IsTaxClaimable;
+
+            foreach (var expense in expenses)
+            {
+                try
+                {
+                    if (await _vatValidation.IsTransactionDateInLockedPeriodAsync(tenantId, expense.Date))
+                    {
+                        result.Skipped++;
+                        result.Errors.Add($"Expense ID {expense.Id}: period locked");
+                        continue;
+                    }
+                    expense.IsTaxClaimable = isClaimable;
+                    expense.ClaimableVat = isClaimable && (expense.VatAmount ?? 0) > 0
+                        ? (expense.IsEntertainment ? Math.Round((expense.VatAmount ?? 0) * 0.5m, 2) : (expense.VatAmount ?? 0))
+                        : 0;
+                    result.Updated++;
+                }
+                catch (Exception ex)
+                {
+                    result.Skipped++;
+                    result.Errors.Add($"Expense ID {expense.Id}: {ex.Message}");
+                }
+            }
+
             await _context.SaveChangesAsync();
             return result;
         }

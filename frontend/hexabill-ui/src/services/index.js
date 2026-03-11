@@ -719,6 +719,11 @@ export const expensesAPI = {
     return response.data
   },
 
+  bulkSetClaimable: async (payload) => {
+    const response = await api.post('/expenses/bulk-set-claimable', payload)
+    return response.data
+  },
+
   uploadAttachment: async (expenseId, file) => {
     const formData = new FormData()
     formData.append('file', file)

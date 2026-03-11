@@ -46,7 +46,7 @@ namespace HexaBill.Api.Modules.Reports
 
         [HttpGet("vat-return")]
         [Authorize(Roles = "Admin,Owner,Manager")]
-        public async Task<ActionResult<ApiResponse<object>>> GetVatReturn(
+        public async Task<ActionResult<ApiResponse<VatReturn201Dto>>> GetVatReturn(
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to,
             [FromQuery] int? quarter,

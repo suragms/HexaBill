@@ -783,7 +783,7 @@ const SettingsPage = () => {
               <div className="flex items-center space-x-6">
                 {/* Logo Preview */}
                 <div className="flex-shrink-0">
-                  {logoPreview || settings.logoUrl ? (
+                  {logoPreview || logoBlobUrl || (settings.logoUrl && !settings.logoUrl.includes('/api/storage/') && !settings.logoUrl.includes('storage/tenants/')) ? (
                     <div className="relative">
                       <img
                         src={logoPreview || logoBlobUrl || (settings.logoUrl?.startsWith('http') ? settings.logoUrl : `${getApiBaseUrlNoSuffix()}${settings.logoUrl?.startsWith('/') ? '' : '/'}${settings.logoUrl}`)}
@@ -1401,7 +1401,7 @@ const SettingsPage = () => {
           <div className="border-2 border-gray-200 rounded-lg p-4 bg-white">
             <div className="grid grid-cols-[140px_1fr_140px] gap-4 items-center">
               <div className="flex justify-center">
-                {(logoPreview || logoBlobUrl || settings.logoUrl) && (
+                {(logoPreview || logoBlobUrl || (settings.logoUrl && !settings.logoUrl.includes('/api/storage/') && !settings.logoUrl.includes('storage/tenants/'))) && (
                   <img
                     src={logoPreview || logoBlobUrl || (settings.logoUrl?.startsWith('http') ? settings.logoUrl : `${getApiBaseUrlNoSuffix()}${settings.logoUrl?.startsWith('/') ? '' : '/'}${settings.logoUrl}`)}
                     alt="Company Logo"
