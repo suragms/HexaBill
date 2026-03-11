@@ -112,7 +112,9 @@ namespace HexaBill.Api.Modules.Expenses
                     TaxType = e.TaxType,
                     IsTaxClaimable = e.IsTaxClaimable,
                     IsEntertainment = e.IsEntertainment,
-                    PartialCreditPct = e.PartialCreditPct
+                    PartialCreditPct = e.PartialCreditPct,
+                    ClaimableVat = e.ClaimableVat,
+                    VatRate = e.VatRate
                 })
                 .ToListAsync();
 
@@ -310,7 +312,9 @@ namespace HexaBill.Api.Modules.Expenses
                 TaxType = expense.TaxType,
                 IsTaxClaimable = expense.IsTaxClaimable,
                 IsEntertainment = expense.IsEntertainment,
-                PartialCreditPct = expense.PartialCreditPct
+                PartialCreditPct = expense.PartialCreditPct,
+                ClaimableVat = expense.ClaimableVat,
+                VatRate = expense.VatRate
             };
         }
 
@@ -448,7 +452,9 @@ namespace HexaBill.Api.Modules.Expenses
                         TaxType = expense.TaxType,
                         IsTaxClaimable = expense.IsTaxClaimable,
                         IsEntertainment = expense.IsEntertainment,
-                        PartialCreditPct = expense.PartialCreditPct
+                        PartialCreditPct = expense.PartialCreditPct,
+                        ClaimableVat = expense.ClaimableVat,
+                        VatRate = expense.VatRate
                     };
                 }
                 catch (Exception ex)
@@ -585,7 +591,9 @@ namespace HexaBill.Api.Modules.Expenses
                         TaxType = expense.TaxType,
                         IsTaxClaimable = expense.IsTaxClaimable,
                         IsEntertainment = expense.IsEntertainment,
-                        PartialCreditPct = expense.PartialCreditPct
+                        PartialCreditPct = expense.PartialCreditPct,
+                        ClaimableVat = expense.ClaimableVat,
+                        VatRate = expense.VatRate
                     };
                 }
                 catch (Exception ex)

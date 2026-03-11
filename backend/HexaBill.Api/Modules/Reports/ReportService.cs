@@ -2364,7 +2364,7 @@ namespace HexaBill.Api.Modules.Reports
                 var projected = await salesQuery
                     .OrderBy(s => s.InvoiceDate)
                     .ThenBy(s => s.Id)
-                    .Select(s => new { s.Id, s.InvoiceNo, s.InvoiceDate, s.CustomerId, s.GrandTotal, Subtotal = s.Subtotal ?? 0, VatTotal = s.VatTotal ?? 0 })
+                    .Select(s => new { s.Id, s.InvoiceNo, s.InvoiceDate, s.CustomerId, s.GrandTotal, s.Subtotal, s.VatTotal })
                     .ToListAsync();
                 sales = projected.Select(x => (x.Id, x.InvoiceNo, x.InvoiceDate, x.CustomerId, x.GrandTotal, x.Subtotal, x.VatTotal)).ToList();
             }
@@ -2394,7 +2394,7 @@ namespace HexaBill.Api.Modules.Reports
                 if (staffId.HasValue) returnsQuery = returnsQuery.Where(r => r.CreatedBy == staffId.Value);
                 var projected = await returnsQuery
                     .OrderBy(r => r.ReturnDate).ThenBy(r => r.Id)
-                    .Select(r => new { r.Id, r.ReturnDate, r.ReturnNo, r.CustomerId, r.GrandTotal, VatTotal = r.VatTotal ?? 0 })
+                    .Select(r => new { r.Id, r.ReturnDate, r.ReturnNo, r.CustomerId, r.GrandTotal, r.VatTotal })
                     .ToListAsync();
                 returns = projected.Select(x => (x.Id, x.ReturnDate, (string?)x.ReturnNo, x.CustomerId, x.GrandTotal, x.VatTotal)).ToList();
             }

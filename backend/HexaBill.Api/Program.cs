@@ -2285,38 +2285,45 @@ _ = Task.Run(async () =>
                 }
                 
                 // SEED EXPENSE CATEGORIES (per tenant so GET /expenses/categories returns data for each tenant)
-                var defaultCategoryNames = new[] {
-                    ("Rent", "#EF4444"), ("Utilities", "#F59E0B"), ("Staff Salary", "#3B82F6"), ("Marketing", "#8B5CF6"),
-                    ("Fuel", "#14B8A6"), ("Delivery", "#F97316"), ("Meals", "#EC4899"), ("Maintenance", "#6366F1"),
-                    ("Insurance", "#10B981"), ("Other", "#6B7280")
-                };
-                var allTenants = await context.Tenants.Select(t => t.Id).ToListAsync();
-                foreach (var tid in allTenants)
+                try
                 {
-                    var hasAny = await context.ExpenseCategories.AnyAsync(c => c.TenantId == tid);
-                    if (!hasAny)
+                    var defaultCategoryNames = new[] {
+                        ("Rent", "#EF4444"), ("Utilities", "#F59E0B"), ("Staff Salary", "#3B82F6"), ("Marketing", "#8B5CF6"),
+                        ("Fuel", "#14B8A6"), ("Delivery", "#F97316"), ("Meals", "#EC4899"), ("Maintenance", "#6366F1"),
+                        ("Insurance", "#10B981"), ("Other", "#6B7280")
+                    };
+                    var allTenants = await context.Tenants.Select(t => t.Id).ToListAsync();
+                    foreach (var tid in allTenants)
                     {
-                        var categories = defaultCategoryNames.Select(n => new ExpenseCategory
+                        var hasAny = await context.ExpenseCategories.AnyAsync(c => c.TenantId == tid);
+                        if (!hasAny)
                         {
-                            TenantId = tid,
-                            Name = n.Item1,
-                            ColorCode = n.Item2,
-                            IsActive = true,
-                            CreatedAt = DateTime.UtcNow
-                        }).ToList();
-                        context.ExpenseCategories.AddRange(categories);
-                        initLogger.LogInformation("Seeding expense categories for tenant {TenantId}", tid);
+                            var categories = defaultCategoryNames.Select(n => new ExpenseCategory
+                            {
+                                TenantId = tid,
+                                Name = n.Item1,
+                                ColorCode = n.Item2,
+                                IsActive = true,
+                                CreatedAt = DateTime.UtcNow
+                            }).ToList();
+                            context.ExpenseCategories.AddRange(categories);
+                            initLogger.LogInformation("Seeding expense categories for tenant {TenantId}", tid);
+                        }
+                    }
+                    if (allTenants.Any())
+                    {
+                        await context.SaveChangesAsync();
+                        initLogger.LogInformation("✅ Expense categories seeded per tenant");
                     }
                 }
-                if (allTenants.Any())
+                catch (Exception exCat)
                 {
-                    await context.SaveChangesAsync();
-                    initLogger.LogInformation("✅ Expense categories seeded per tenant");
+                    initLogger.LogWarning(exCat, "Expense category seeding skipped (e.g. TenantId column missing - run app again after DatabaseFixer adds it)");
                 }
             }
             catch (Exception ex)
             {
-                initLogger.LogError(ex, "❌ CRITICAL: User seeding failed - admin login will not work!");
+                initLogger.LogError(ex, "❌ CRITICAL: User seeding failed - admin login may not work!");
             }
 
             // CRITICAL: Sync invoice sequence with existing data (PostgreSQL only)

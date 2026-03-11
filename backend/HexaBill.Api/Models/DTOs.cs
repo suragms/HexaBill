@@ -613,6 +613,8 @@ namespace HexaBill.Api.Models
         public bool IsTaxClaimable { get; set; }
         public bool IsEntertainment { get; set; }
         public decimal PartialCreditPct { get; set; }
+        public decimal? ClaimableVat { get; set; }
+        public decimal? VatRate { get; set; }
     }
 
     public class ExpenseCategoryDto
@@ -1648,6 +1650,8 @@ namespace HexaBill.Api.Models
         public decimal NetAmount { get; set; }
         public decimal VatAmount { get; set; }
         public string? VatScenario { get; set; }
+        public string CustomerName { get; set; } = string.Empty;
+        public int? SaleId { get; set; }
     }
 
     public class VatReturnInputLineDto
@@ -1659,6 +1663,11 @@ namespace HexaBill.Api.Models
         public decimal VatAmount { get; set; }
         public decimal ClaimableVat { get; set; }
         public string? TaxType { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public string CategoryName { get; set; } = string.Empty;
+        public int? SourceId { get; set; }
+        public bool IsEntertainment { get; set; }
+        public bool IsTaxClaimable { get; set; }
     }
 
     public class VatReturnCreditNoteLineDto

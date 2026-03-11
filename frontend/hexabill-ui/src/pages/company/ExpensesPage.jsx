@@ -325,6 +325,7 @@ const ExpensesPage = () => {
 
         const total = expenseList.reduce((sum, expense) => sum + (expense.amount || 0), 0)
         const totalVat = expenseList.reduce((sum, expense) => sum + (Number(expense.vatAmount) || 0), 0)
+        const totalClaimableVat = expenseList.reduce((sum, expense) => sum + (Number(expense.claimableVat ?? expense.ClaimableVat) || 0), 0)
         const categoryTotals = expenseList.reduce((acc, expense) => {
           const cat = expense.categoryName || 'Other'
           acc[cat] = (acc[cat] || 0) + (expense.amount || 0)
@@ -334,6 +335,7 @@ const ExpensesPage = () => {
         setExpenseSummary({
           total,
           totalVat,
+          totalClaimableVat,
           categoryTotals,
           averagePerDay: total / 30,
           topCategory: Object.keys(categoryTotals).length > 0
@@ -907,6 +909,7 @@ const ExpensesPage = () => {
                 onChange={(e) => {
                   setGroupBy(e.target.value)
                   setShowAggregated(e.target.value !== '')
+                  if (e.target.value !== '') setSelectedExpenseIds([])
                 }}
               />
             </div>
@@ -930,7 +933,7 @@ const ExpensesPage = () => {
 
         {/* Summary Cards - Mobile Responsive */}
         {expenseSummary && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-4 sm:mb-6">
             <div className="bg-white rounded-xl border border-neutral-200 p-3 sm:p-4">
               <div className="flex items-center">
                 <TrendingDown className="h-5 w-5 sm:h-6 sm:w-6 lg:h-8 lg:w-8 text-red-600 flex-shrink-0" />
@@ -975,6 +978,19 @@ const ExpensesPage = () => {
                   <p className="text-base sm:text-xl lg:text-2xl font-bold text-amber-900 truncate">
                     {formatCurrency(expenseSummary.totalVat ?? 0)}
                   </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-green-200 p-3 sm:p-4">
+              <div className="flex items-center">
+                <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6 lg:h-8 lg:w-8 text-green-600 flex-shrink-0" />
+                <div className="ml-2 sm:ml-3 lg:ml-4 min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-green-600">Claimable VAT (Box 9b)</p>
+                  <p className="text-base sm:text-xl lg:text-2xl font-bold text-green-900 truncate">
+                    {formatCurrency(expenseSummary.totalClaimableVat ?? 0)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">After entertainment cap & petroleum exclusion</p>
                 </div>
               </div>
             </div>
@@ -1118,8 +1134,8 @@ const ExpensesPage = () => {
           </div>
         )}
 
-        {/* Bulk selection bar */}
-        {!showAggregated && selectedExpenseIds.length > 0 && (
+        {/* Bulk selection bar - visible whenever any expense is selected */}
+        {selectedExpenseIds.length > 0 && (
           <div className="bg-primary-50 border border-primary-200 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-3">
             <span className="text-sm font-medium text-primary-800">{selectedExpenseIds.length} selected</span>
             {isAdminOrOwner(user) && (
@@ -1200,6 +1216,7 @@ const ExpensesPage = () => {
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Route</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r border-neutral-200">Amount</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r border-neutral-200">VAT</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r border-neutral-200">Claimable VAT</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r border-neutral-200">Total</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Date</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r border-neutral-200">Status</th>
@@ -1210,7 +1227,7 @@ const ExpensesPage = () => {
                 <tbody className="divide-y divide-neutral-100">
                   {displayExpenses.length === 0 ? (
                     <tr>
-                      <td colSpan="12" className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan="13" className="px-6 py-8 text-center text-gray-500">
                         {user && !isAdminOrOwner(user)
                           ? 'No expenses in your assigned branch(es) for this period.'
                           : 'No expenses found'}
@@ -1250,6 +1267,12 @@ const ExpensesPage = () => {
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-right text-gray-700">
                           {expense.vatAmount != null ? formatCurrency(expense.vatAmount) : '-'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-right text-green-700">
+                          {expense.claimableVat != null || expense.ClaimableVat != null ? formatCurrency(expense.claimableVat ?? expense.ClaimableVat) : '-'}
+                          {expense.isEntertainment && (expense.claimableVat != null || expense.ClaimableVat != null) && (
+                            <span className="ml-1 text-xs text-amber-600" title="50% cap">50%</span>
+                          )}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-right font-medium text-gray-900">
                           {expense.totalAmount != null ? formatCurrency(expense.totalAmount) : (expense.vatAmount != null ? formatCurrency((Number(expense.amount) || 0) + (Number(expense.vatAmount) || 0)) : formatCurrency(expense.amount))}

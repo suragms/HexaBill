@@ -20,10 +20,12 @@ namespace HexaBill.Api.Modules.Reports
     public class VatReturnReportService : IVatReturnReportService
     {
         private readonly AppDbContext _context;
+        private readonly ILogger<VatReturnReportService> _logger;
 
-        public VatReturnReportService(AppDbContext context)
+        public VatReturnReportService(AppDbContext context, ILogger<VatReturnReportService> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         public async Task<VatReturnDto> GetVatReturnAsync(int tenantId, int quarter, int year)
@@ -50,6 +52,36 @@ namespace HexaBill.Api.Modules.Reports
 
         public async Task<VatReturn201Dto> GetVatReturn201Async(int tenantId, DateTime fromDate, DateTime toDate)
         {
+            try
+            {
+                return await GetVatReturn201InternalAsync(tenantId, fromDate, toDate);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "VAT return calculation failed for tenant {TenantId}. {Message}", tenantId, ex.Message);
+                var (periodLabel, dueDate) = GetPeriodLabelAndDue(fromDate.ToUtcKind(), toDate.Date.AddDays(1).ToUtcKind());
+                return new VatReturn201Dto
+                {
+                    PeriodLabel = periodLabel,
+                    PeriodStart = fromDate,
+                    PeriodEnd = toDate,
+                    DueDate = dueDate,
+                    Status = "Draft",
+                    ValidationIssues = new List<ValidationIssueDto>
+                    {
+                        new ValidationIssueDto
+                        {
+                            RuleId = "SYS001",
+                            Severity = "Blocking",
+                            Message = $"Calculation error: {ex.Message}. Check for missing VatScenario on sales or NULL Subtotal/VatTotal."
+                        }
+                    }
+                };
+            }
+        }
+
+        private async Task<VatReturn201Dto> GetVatReturn201InternalAsync(int tenantId, DateTime fromDate, DateTime toDate)
+        {
             var from = fromDate.ToUtcKind();
             var to = toDate.Date.AddDays(1).ToUtcKind();
             var outputLines = new List<VatReturnOutputLineDto>();
@@ -59,6 +91,7 @@ namespace HexaBill.Api.Modules.Reports
 
             // Resolve tenant: prefer TenantId, fallback OwnerId for backward compatibility
             var salesInPeriod = await _context.Sales
+                .Include(s => s.Customer)
                 .Where(s => (s.TenantId != null ? s.TenantId == tenantId : s.OwnerId == tenantId) && !s.IsDeleted
                     && s.InvoiceDate >= from && s.InvoiceDate < to)
                 .OrderBy(s => s.InvoiceDate)
@@ -68,6 +101,9 @@ namespace HexaBill.Api.Modules.Reports
             foreach (var s in salesInPeriod)
             {
                 if (s.IsZeroInvoice) continue;
+                // Null-guard VatScenario so IsStandardRated and string comparisons never see null
+                if (string.IsNullOrWhiteSpace(s.VatScenario))
+                    s.VatScenario = "Standard";
                 var isStandard = IsStandardRated(s);
                 var net = s.Subtotal;
                 var vat = s.VatTotal;
@@ -82,17 +118,20 @@ namespace HexaBill.Api.Modules.Reports
                         Date = s.InvoiceDate,
                         NetAmount = net,
                         VatAmount = vat,
-                        VatScenario = s.VatScenario ?? "Standard"
+                        VatScenario = s.VatScenario ?? "Standard",
+                        CustomerName = s.Customer?.Name ?? "",
+                        SaleId = s.Id
                     });
                 }
                 else if (string.Equals(s.VatScenario, VatScenarios.ZeroRated, StringComparison.OrdinalIgnoreCase))
                 {
                     box2 += VatCalculator.Round(net);
-                    outputLines.Add(new VatReturnOutputLineDto { Type = "Sale", Reference = s.InvoiceNo ?? s.Id.ToString(), Date = s.InvoiceDate, NetAmount = net, VatAmount = 0, VatScenario = "ZeroRated" });
+                    outputLines.Add(new VatReturnOutputLineDto { Type = "Sale", Reference = s.InvoiceNo ?? s.Id.ToString(), Date = s.InvoiceDate, NetAmount = net, VatAmount = 0, VatScenario = "ZeroRated", CustomerName = s.Customer?.Name ?? "", SaleId = s.Id });
                 }
                 else if (string.Equals(s.VatScenario, VatScenarios.Exempt, StringComparison.OrdinalIgnoreCase))
                 {
                     box3 += VatCalculator.Round(net);
+                    outputLines.Add(new VatReturnOutputLineDto { Type = "Sale", Reference = s.InvoiceNo ?? s.Id.ToString(), Date = s.InvoiceDate, NetAmount = net, VatAmount = 0, VatScenario = "Exempt", CustomerName = s.Customer?.Name ?? "", SaleId = s.Id });
                 }
             }
 
@@ -120,6 +159,7 @@ namespace HexaBill.Api.Modules.Reports
 
             // Box 4: Reverse charge base (purchases)
             var purchasesInPeriod = await _context.Purchases
+                .Include(p => p.Supplier)
                 .Where(p => (p.TenantId != null ? p.TenantId == tenantId : p.OwnerId == tenantId)
                     && p.PurchaseDate >= from && p.PurchaseDate < to)
                 .ToListAsync();
@@ -152,13 +192,17 @@ namespace HexaBill.Api.Modules.Reports
                         NetAmount = p.Subtotal ?? 0,
                         VatAmount = p.VatTotal ?? 0,
                         ClaimableVat = p.VatTotal ?? 0,
-                        TaxType = "Standard"
+                        TaxType = "Standard",
+                        SupplierName = p.SupplierName ?? p.Supplier?.Name ?? "",
+                        SourceId = p.Id,
+                        IsTaxClaimable = p.IsTaxClaimable
                     });
                 }
             }
 
             // Expenses: Box 9b (claimable, non-petroleum) and PetroleumExcluded
             var expensesInPeriod = await _context.Expenses
+                .Include(e => e.Category)
                 .Where(e => (e.TenantId != null ? e.TenantId == tenantId : e.OwnerId == tenantId)
                     && e.Date >= from && e.Date < to)
                 .ToListAsync();
@@ -183,7 +227,11 @@ namespace HexaBill.Api.Modules.Reports
                         NetAmount = e.Amount,
                         VatAmount = e.VatAmount ?? 0,
                         ClaimableVat = claimable,
-                        TaxType = e.TaxType ?? "Standard"
+                        TaxType = e.TaxType ?? "Standard",
+                        CategoryName = e.Category?.Name ?? "",
+                        SourceId = e.Id,
+                        IsEntertainment = e.IsEntertainment,
+                        IsTaxClaimable = e.IsTaxClaimable
                     });
                 }
             }

@@ -27,8 +27,9 @@ namespace HexaBill.Api.Modules.Reports
         private readonly AppDbContext _context;
         private readonly ITimeZoneService _timeZoneService;
         private readonly IBranchService _branchService;
+        private readonly ILogger<ReportsController> _logger;
 
-        public ReportsController(IReportService reportService, IVatReturnReportService vatReturnReportService, IVatReturnValidationService vatValidation, AppDbContext context, ITimeZoneService timeZoneService, IBranchService branchService)
+        public ReportsController(IReportService reportService, IVatReturnReportService vatReturnReportService, IVatReturnValidationService vatValidation, AppDbContext context, ITimeZoneService timeZoneService, IBranchService branchService, ILogger<ReportsController> logger)
         {
             _reportService = reportService;
             _vatReturnReportService = vatReturnReportService;
@@ -36,6 +37,7 @@ namespace HexaBill.Api.Modules.Reports
             _context = context;
             _timeZoneService = timeZoneService;
             _branchService = branchService;
+            _logger = logger;
         }
 
         // Staff can view reports but cannot export sensitive data
@@ -96,11 +98,12 @@ namespace HexaBill.Api.Modules.Reports
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "VAT return failed: {Message}. StackTrace: {StackTrace}", ex.Message, ex.StackTrace);
                 return StatusCode(500, new ApiResponse<object>
                 {
                     Success = false,
-                    Message = "An error occurred",
-                    Errors = new List<string> { ex.Message }
+                    Message = "VAT calculation error: " + ex.Message,
+                    Errors = new List<string> { ex.GetType().Name, ex.Message }
                 });
             }
         }

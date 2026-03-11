@@ -412,12 +412,13 @@ namespace HexaBill.Api.Modules.Auth
             var audience = jwtSettings["Audience"] ?? "HexaBill.Api";
             var expiryHours = customExpiryHours ?? (int.TryParse(jwtSettings["ExpiryInHours"], out int hours) ? hours : 8);
             
+            var roleValue = NormalizeRoleForPolicy(user.Role.ToString());
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim("UserId", user.Id.ToString()),
                 new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.Role, user.Role.ToString()),
+                new Claim(ClaimTypes.Role, roleValue),
                 new Claim(ClaimTypes.Name, user.Name),
                 new Claim("owner_id", user.TenantId?.ToString() ?? "0"),
                 new Claim("tenant_id", user.TenantId?.ToString() ?? "0"),
@@ -436,6 +437,15 @@ namespace HexaBill.Api.Modules.Auth
 
             var token = tokenHandler.CreateToken(tokenDescriptor);
             return tokenHandler.WriteToken(token);
+        }
+
+        /// <summary>Normalize role string so [Authorize(Roles = "Admin,Owner,Manager")] matches (e.g. "manager" -> "Manager").</summary>
+        private static string NormalizeRoleForPolicy(string? role)
+        {
+            if (string.IsNullOrWhiteSpace(role)) return "Staff";
+            var r = role.Trim();
+            if (r.Length == 0) return "Staff";
+            return char.ToUpperInvariant(r[0]) + r.Substring(1).ToLowerInvariant();
         }
 
         private async Task<string> GetCompanyNameAsync()

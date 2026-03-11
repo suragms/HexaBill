@@ -219,3 +219,17 @@ CREATE INDEX IF NOT EXISTS "IX_VendorDiscounts_TenantId" ON "VendorDiscounts" ("
 CREATE INDEX IF NOT EXISTS "IX_VendorDiscounts_SupplierId" ON "VendorDiscounts" ("SupplierId");
 CREATE INDEX IF NOT EXISTS "IX_VendorDiscounts_PurchaseId" ON "VendorDiscounts" ("PurchaseId");
 CREATE INDEX IF NOT EXISTS "IX_VendorDiscounts_CreatedBy" ON "VendorDiscounts" ("CreatedBy");
+
+-- =============================================================================
+-- Sales: fix NULL Subtotal/VatTotal (prevents "exception while iterating" / VAT return 500 in production)
+-- =============================================================================
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'Sales') THEN
+    UPDATE "Sales" SET "Subtotal" = COALESCE("Subtotal", 0), "VatTotal" = COALESCE("VatTotal", 0)
+    WHERE "Subtotal" IS NULL OR "VatTotal" IS NULL;
+    ALTER TABLE "Sales" ADD COLUMN IF NOT EXISTS "IsZeroInvoice" boolean NOT NULL DEFAULT false;
+    ALTER TABLE "Sales" ADD COLUMN IF NOT EXISTS "VatScenario" character varying(20) NULL;
+    UPDATE "Sales" SET "VatScenario" = COALESCE("VatScenario", 'Standard') WHERE "VatScenario" IS NULL OR TRIM("VatScenario") = '';
+  END IF;
+END $$;

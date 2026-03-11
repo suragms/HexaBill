@@ -68,6 +68,11 @@ namespace HexaBill.Api.Shared.Extensions
                     ("ALTER TABLE Sales ADD COLUMN Notes TEXT NULL", "Sales", "Notes"),
                     ("ALTER TABLE Sales ADD COLUMN ExternalReference TEXT NULL", "Sales", "ExternalReference"),
                     ("ALTER TABLE Sales ADD COLUMN IsFinalized INTEGER DEFAULT 1", "Sales", "IsFinalized"),
+                    ("ALTER TABLE Sales ADD COLUMN IsZeroInvoice INTEGER DEFAULT 0", "Sales", "IsZeroInvoice"),
+                    ("ALTER TABLE Sales ADD COLUMN VatScenario TEXT NULL", "Sales", "VatScenario"),
+                    
+                    // ExpenseCategories - TenantId required for user/expense seeding (migration may not have run)
+                    ("ALTER TABLE ExpenseCategories ADD COLUMN TenantId INTEGER NULL", "ExpenseCategories", "TenantId"),
                     
                     // Customers table - ALL columns (order matters - add nullable columns first, then required with defaults)
                     ("ALTER TABLE Customers ADD COLUMN Email TEXT NULL", "Customers", "Email"),
@@ -113,6 +118,13 @@ namespace HexaBill.Api.Shared.Extensions
                     // SaleItems table - Ensure all columns exist
                     ("ALTER TABLE SaleItems ADD COLUMN Discount decimal(18,2) DEFAULT 0", "SaleItems", "Discount"),
                     ("ALTER TABLE SaleItems ADD COLUMN VatAmount decimal(18,2) DEFAULT 0", "SaleItems", "VatAmount"),
+                    ("ALTER TABLE SaleItems ADD COLUMN VatRate decimal(18,4) DEFAULT 0", "SaleItems", "VatRate"),
+                    ("ALTER TABLE SaleItems ADD COLUMN VatScenario TEXT NULL", "SaleItems", "VatScenario"),
+                    
+                    // Purchases table - VAT return engine
+                    ("ALTER TABLE Purchases ADD COLUMN IsReverseCharge INTEGER DEFAULT 0", "Purchases", "IsReverseCharge"),
+                    ("ALTER TABLE Purchases ADD COLUMN IsTaxClaimable INTEGER DEFAULT 0", "Purchases", "IsTaxClaimable"),
+                    ("ALTER TABLE Purchases ADD COLUMN ReverseChargeVat decimal(18,4) NULL", "Purchases", "ReverseChargeVat"),
                     
                     // Purchases table - Ensure all columns exist (CRITICAL FIX)
                     ("ALTER TABLE Purchases ADD COLUMN ExternalReference TEXT NULL", "Purchases", "ExternalReference"),
@@ -125,6 +137,16 @@ namespace HexaBill.Api.Shared.Extensions
                     ("ALTER TABLE Expenses ADD COLUMN ApprovedBy INTEGER NULL", "Expenses", "ApprovedBy"),
                     ("ALTER TABLE Expenses ADD COLUMN ApprovedAt TEXT NULL", "Expenses", "ApprovedAt"),
                     ("ALTER TABLE Expenses ADD COLUMN RejectionReason TEXT NULL", "Expenses", "RejectionReason"),
+                    ("ALTER TABLE Expenses ADD COLUMN RouteId INTEGER NULL", "Expenses", "RouteId"),
+                    // VAT return engine (AddVatReturnEngineFields)
+                    ("ALTER TABLE Expenses ADD COLUMN ClaimableVat decimal(18,4) NULL", "Expenses", "ClaimableVat"),
+                    ("ALTER TABLE Expenses ADD COLUMN IsEntertainment INTEGER DEFAULT 0", "Expenses", "IsEntertainment"),
+                    ("ALTER TABLE Expenses ADD COLUMN IsTaxClaimable INTEGER DEFAULT 0", "Expenses", "IsTaxClaimable"),
+                    ("ALTER TABLE Expenses ADD COLUMN PartialCreditPct decimal(18,4) DEFAULT 0", "Expenses", "PartialCreditPct"),
+                    ("ALTER TABLE Expenses ADD COLUMN TaxType TEXT NULL", "Expenses", "TaxType"),
+                    ("ALTER TABLE Expenses ADD COLUMN TotalAmount decimal(18,4) NULL", "Expenses", "TotalAmount"),
+                    ("ALTER TABLE Expenses ADD COLUMN VatAmount decimal(18,4) NULL", "Expenses", "VatAmount"),
+                    ("ALTER TABLE Expenses ADD COLUMN VatRate decimal(18,4) NULL", "Expenses", "VatRate"),
                 };
 
                 int columnsAdded = 0;
