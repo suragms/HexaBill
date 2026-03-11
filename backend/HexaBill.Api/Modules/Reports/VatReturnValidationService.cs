@@ -104,11 +104,11 @@ namespace HexaBill.Api.Modules.Reports
             }
 
             // V005: Petroleum expense should not be claimable (informational)
-            // Use translatable condition: EF cannot translate string.Equals(..., OrdinalIgnoreCase) to SQL
+            // EF cannot translate string.Equals(..., OrdinalIgnoreCase) to SQL; use exact match so it translates.
             var petroleumClaimable = await _context.Expenses
                 .Where(e => (e.TenantId != null ? e.TenantId == tenantId : e.OwnerId == tenantId)
                     && e.Date >= fromUtc && e.Date < toEnd
-                    && e.TaxType != null && e.TaxType.ToLower() == "petroleum"
+                    && e.TaxType == TaxTypes.Petroleum
                     && e.IsTaxClaimable)
                 .Select(e => new { e.Id })
                 .ToListAsync();
