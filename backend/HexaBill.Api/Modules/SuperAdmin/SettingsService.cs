@@ -270,8 +270,20 @@ namespace HexaBill.Api.Modules.SuperAdmin
                 VatPercent = decimal.TryParse(settingsDict.GetValueOrDefault("VAT_PERCENT", "5"), out var vat) ? vat : 5.0m,
                 InvoicePrefix = settingsDict.GetValueOrDefault("INVOICE_PREFIX", "FM"),
                 LogoPath = settingsDict.GetValueOrDefault("LOGO_PUBLIC_URL", settingsDict.GetValueOrDefault("COMPANY_LOGO", settingsDict.GetValueOrDefault("LOGO_PATH", "/uploads/logo.png"))),
-                LogoStorageKey = settingsDict.TryGetValue("LOGO_STORAGE_KEY", out var keyVal) ? keyVal : null
+                LogoStorageKey = GetLogoStorageKeyForInvoice(settingsDict)
             };
+        }
+
+        /// <summary>Resolve logo storage key for PDF: prefer LOGO_STORAGE_KEY; fallback to key derived from COMPANY_LOGO when it looks like a storage path (so invoice header shows uploaded logo).</summary>
+        private static string? GetLogoStorageKeyForInvoice(Dictionary<string, string> settingsDict)
+        {
+            if (settingsDict.TryGetValue("LOGO_STORAGE_KEY", out var keyVal) && !string.IsNullOrWhiteSpace(keyVal))
+                return keyVal;
+            var companyLogo = settingsDict.GetValueOrDefault("COMPANY_LOGO", settingsDict.GetValueOrDefault("LOGO_PUBLIC_URL", ""));
+            if (string.IsNullOrWhiteSpace(companyLogo) || !companyLogo.Contains("tenants/", StringComparison.OrdinalIgnoreCase) || !companyLogo.Contains("logos/", StringComparison.OrdinalIgnoreCase))
+                return null;
+            var idx = companyLogo.IndexOf("tenants/", StringComparison.OrdinalIgnoreCase);
+            return companyLogo.Substring(idx).Split('?')[0].Trim();
         }
 
         /// <summary>Get logo metadata for GET /api/settings/logo or GET /api/Admin/logo.</summary>

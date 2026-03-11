@@ -143,7 +143,23 @@ const VatReturnPage = () => {
   const hasFta201 = v && typeof v.box1a === 'number'
   const issues = v?.validationIssues || []
   const blocking = issues.filter(i => i.severity === 'Blocking')
+  const hasV002 = issues.some(i => i.ruleId === 'V002')
   const hasSys001 = issues.some(i => i.ruleId === 'SYS001')
+  const [backfilling, setBackfilling] = useState(false)
+  const handleBackfillVatScenario = async () => {
+    try {
+      setBackfilling(true)
+      const res = await reportsAPI.backfillVatScenario()
+      if (res?.success && res?.data?.updated != null) {
+        toast.success(res.message || `Updated ${res.data.updated} sale(s). Recalculating…`)
+        await fetchVatReturn(fromDate, toDate)
+      } else toast.error(res?.message || 'Backfill failed')
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to fix VatScenario')
+    } finally {
+      setBackfilling(false)
+    }
+  }
   const periodLabel = v?.periodLabel || (fromDate && toDate ? `${fromDate} to ${toDate}` : `Q${quarter} ${year}`)
   const purchaseLines = (v?.inputLines || []).filter(l => (l.type || '').toLowerCase() === 'purchase')
   const expenseLines = (v?.inputLines || []).filter(l => (l.type || '').toLowerCase() === 'expense')
@@ -396,11 +412,23 @@ const VatReturnPage = () => {
           {/* Validation issues */}
           {blocking.length > 0 && !hasSys001 && (
             <div className="rounded-md border border-red-200 bg-red-50 p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-medium text-red-800">Validation (blocking): resolve before locking period.</p>
-                <button type="button" onClick={() => setValidationExpanded(!validationExpanded)} className="text-red-600 text-xs">
-                  {validationExpanded ? 'Hide' : 'Show'} issues
-                </button>
+                <div className="flex items-center gap-2">
+                  {hasV002 && isAdminOrOwner(user) && (
+                    <button
+                      type="button"
+                      onClick={handleBackfillVatScenario}
+                      disabled={backfilling}
+                      className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {backfilling ? 'Fixing…' : 'Fix missing VatScenario'}
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setValidationExpanded(!validationExpanded)} className="text-red-600 text-xs">
+                    {validationExpanded ? 'Hide' : 'Show'} issues
+                  </button>
+                </div>
               </div>
               {validationExpanded && (
                 <ul className="mt-2 list-disc list-inside text-sm text-red-700">

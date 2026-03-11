@@ -885,6 +885,11 @@ export const reportsAPI = {
     return response.data
   },
 
+  backfillVatScenario: async () => {
+    const response = await api.post('/reports/vat-return/backfill-vat-scenario')
+    return response.data
+  },
+
   getVatReturnValidation: async (params) => {
     const p = {}
     if (params.periodId != null) p.periodId = params.periodId

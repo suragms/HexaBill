@@ -274,6 +274,30 @@ namespace HexaBill.Api.Modules.Reports
             return Ok(new ApiResponse<List<ValidationIssueDto>> { Success = true, Data = issues });
         }
 
+        /// <summary>Backfill VatScenario = 'Standard' for sales that have null or empty VatScenario (fixes "Sale must have VatScenario set" validation errors).</summary>
+        [HttpPost("vat-return/backfill-vat-scenario")]
+        [Authorize(Roles = "Admin,Owner")]
+        public async Task<ActionResult<ApiResponse<object>>> BackfillVatScenario()
+        {
+            var tenantId = CurrentTenantId;
+            if (tenantId <= 0) return Forbid();
+            int updated;
+            if (_context.Database.IsNpgsql())
+            {
+                updated = await _context.Database.ExecuteSqlRawAsync(
+                    @"UPDATE ""Sales"" SET ""VatScenario"" = 'Standard' WHERE ""TenantId"" = {0} AND (""VatScenario"" IS NULL OR TRIM(""VatScenario"") = '')",
+                    tenantId);
+            }
+            else
+            {
+                updated = await _context.Database.ExecuteSqlRawAsync(
+                    "UPDATE Sales SET VatScenario = 'Standard' WHERE TenantId = {0} AND (VatScenario IS NULL OR TRIM(VatScenario) = '')",
+                    tenantId);
+            }
+            _logger.LogInformation("VatScenario backfill: tenant {TenantId}, {Count} sales updated.", tenantId, updated);
+            return Ok(new ApiResponse<object> { Success = true, Data = new { updated }, Message = $"Set VatScenario to Standard for {updated} sale(s). Recalculate VAT return to clear validation." });
+        }
+
         private static (string label, DateTime due) GetPeriodLabelAndDue(DateTime from, DateTime to)
         {
             var months = (to.Year - from.Year) * 12 + (to.Month - from.Month);
