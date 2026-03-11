@@ -882,7 +882,7 @@ namespace HexaBill.Api.Modules.Billing
                 {
                     var logoBytes = await _storageService.ReadBytesAsync(companySettings.LogoStorageKey);
                     dto.LogoImageBytes = logoBytes;
-                    _logger.LogDebug("Invoice PDF: logo loaded for tenant {TenantId}, {Bytes} bytes.", tenantId, logoBytes?.Length ?? 0);
+                    _logger.LogInformation("Invoice PDF: logo loaded for tenant {TenantId}, {Bytes} bytes.", tenantId, logoBytes?.Length ?? 0);
                 }
                 catch (Exception ex)
                 {
@@ -901,10 +901,10 @@ namespace HexaBill.Api.Modules.Billing
                     {
                         var logoBytes = await File.ReadAllBytesAsync(fullPath);
                         dto.LogoImageBytes = logoBytes;
-                        _logger.LogDebug("Invoice PDF: logo loaded from legacy path for tenant {TenantId}, {Bytes} bytes.", tenantId, logoBytes.Length);
+                        _logger.LogInformation("Invoice PDF: logo loaded from legacy path for tenant {TenantId}, {Bytes} bytes.", tenantId, logoBytes.Length);
                     }
                     else
-                        _logger.LogWarning("Invoice PDF: legacy logo file not found for tenant {TenantId} at {Path}. Invoice will render with text-only header.", tenantId, fullPath);
+                        _logger.LogInformation("Invoice PDF: legacy logo file not found for tenant {TenantId} at {Path}. Header will be text-only.", tenantId, fullPath);
                 }
                 catch (Exception ex)
                 {
@@ -913,11 +913,11 @@ namespace HexaBill.Api.Modules.Billing
             }
             else if (string.IsNullOrWhiteSpace(companySettings.LogoStorageKey) && string.IsNullOrWhiteSpace(companySettings.LogoPath))
             {
-                _logger.LogDebug("Invoice PDF: no logo set for tenant {TenantId}.", tenantId);
+                _logger.LogInformation("Invoice PDF: no logo set for tenant {TenantId}. Header will be text-only.", tenantId);
             }
             else
             {
-                _logger.LogWarning("Invoice PDF: logo not available for tenant {TenantId} (LogoStorageKey empty, LogoPath not a legacy /uploads/ path). Invoice will render with text-only header.", tenantId);
+                _logger.LogInformation("Invoice PDF: logo not available for tenant {TenantId}. LogoStorageKey empty, LogoPath='{LogoPath}' (not a legacy /uploads/ path). Header will be text-only.", tenantId, companySettings.LogoPath ?? "");
             }
             return dto;
         }
