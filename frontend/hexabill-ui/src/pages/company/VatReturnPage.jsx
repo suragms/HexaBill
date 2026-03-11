@@ -409,11 +409,21 @@ const VatReturnPage = () => {
             </div>
           )}
 
-          {/* Validation issues */}
-          {blocking.length > 0 && !hasSys001 && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-4">
+          {/* Validation issues – compact: group by rule so we don't use huge space for repeated messages */}
+          {blocking.length > 0 && !hasSys001 && (() => {
+            const grouped = blocking.reduce((acc, i) => {
+              const key = `${i.ruleId || 'other'}|${i.message || ''}`
+              if (!acc[key]) acc[key] = { ruleId: i.ruleId, message: i.message, count: 0 }
+              acc[key].count++
+              return acc
+            }, {})
+            const groups = Object.values(grouped)
+            return (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-red-800">Validation (blocking): resolve before locking period.</p>
+                <p className="text-sm font-medium text-red-800">
+                  {blocking.length} blocking issue{blocking.length !== 1 ? 's' : ''} — resolve before locking period.
+                </p>
                 <div className="flex items-center gap-2">
                   {hasV002 && isAdminOrOwner(user) && (
                     <button
@@ -425,18 +435,24 @@ const VatReturnPage = () => {
                       {backfilling ? 'Fixing…' : 'Fix missing VatScenario'}
                     </button>
                   )}
-                  <button type="button" onClick={() => setValidationExpanded(!validationExpanded)} className="text-red-600 text-xs">
-                    {validationExpanded ? 'Hide' : 'Show'} issues
+                  <button type="button" onClick={() => setValidationExpanded(!validationExpanded)} className="text-red-600 text-xs font-medium">
+                    {validationExpanded ? 'Hide details' : 'Show details'}
                   </button>
                 </div>
               </div>
               {validationExpanded && (
-                <ul className="mt-2 list-disc list-inside text-sm text-red-700">
-                  {blocking.map((i, idx) => <li key={idx}>{i.message}</li>)}
+                <ul className="mt-2 space-y-1 text-sm text-red-700">
+                  {groups.map((g, idx) => (
+                    <li key={idx} className="flex items-baseline gap-2">
+                      <span className="font-medium text-red-800">{g.ruleId}</span>
+                      <span>{g.count > 1 ? `(${g.count})` : ''} {g.message}</span>
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>
-          )}
+            )
+          })()}
           {issues.length > 0 && blocking.length === 0 && !hasSys001 && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               <span className="font-medium">Warnings:</span> {issues.map(i => i.message).join('; ')}
@@ -463,7 +479,8 @@ const VatReturnPage = () => {
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             {activeTab === 'summary' && (
               <>
-          {/* Top summary cards - Output VAT, Input VAT, Payable/Refund + Deadline, Transactions, Petroleum */}
+          {/* Top summary cards – key totals for period (all AED) */}
+          <p className="text-xs text-gray-500 px-4 mb-1">Totals for selected period (AED)</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6 p-4">
             <div className="bg-white rounded-lg border-2 border-blue-200 p-4">
               <p className="text-xs font-medium text-blue-700 uppercase tracking-wide">Output VAT</p>
@@ -505,29 +522,34 @@ const VatReturnPage = () => {
             )}
           </div>
 
-          {/* FTA 201 Summary */}
+          {/* FTA 201 Summary – table-style layout so totals per section are clear */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">FTA Form 201 Summary</h2>
-            <p className="text-sm text-gray-600 mb-3">Section 1 – Sales (Output VAT)</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">1a Taxable (net)</p><p className="font-semibold">{formatCurrency(v.box1a)}</p></div>
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">1b VAT on taxable</p><p className="font-semibold">{formatCurrency(v.box1b)}</p></div>
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">2 Zero-rated</p><p className="font-semibold">{formatCurrency(v.box2)}</p></div>
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">3 Exempt</p><p className="font-semibold">{formatCurrency(v.box3)}</p></div>
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">4 Reverse charge</p><p className="font-semibold">{formatCurrency(v.box4)}</p></div>
-            </div>
-            <p className="text-sm text-gray-600 mb-3">Section 2 – Purchases (Input VAT)</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">9b Recoverable input</p><p className="font-semibold">{formatCurrency(v.box9b)}</p></div>
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">10 Reverse ch. VAT</p><p className="font-semibold">{formatCurrency(v.box10)}</p></div>
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">11 Input adj.</p><p className="font-semibold">{formatCurrency(v.box11)}</p></div>
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">12 Total recoverable</p><p className="font-semibold">{formatCurrency(v.box12)}</p></div>
-            </div>
-            <p className="text-sm text-gray-600 mb-3">Section 3 – VAT summary (Payable / Refund)</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              <div className="border rounded-lg p-3 bg-primary-50"><p className="text-xs text-gray-500">13a Payable</p><p className="font-bold">{formatCurrency(v.box13a)}</p></div>
-              <div className="border rounded-lg p-3 bg-green-50"><p className="text-xs text-gray-500">13b Refundable</p><p className="font-bold">{formatCurrency(v.box13b)}</p></div>
-              <div className="border rounded-lg p-3"><p className="text-xs text-gray-500">Petroleum excluded</p><p className="font-semibold">{formatCurrency(v.petroleumExcluded ?? 0)}</p></div>
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">FTA Form 201 Summary</h2>
+            <p className="text-xs text-gray-500 mb-4">Box values for this period — use tabs above for line-level detail.</p>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">Section</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">Box</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">Amount (AED)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  <tr className="bg-blue-50/50"><td className="px-3 py-2 font-medium text-gray-800" rowSpan="5">1 – Sales (Output VAT)</td><td className="px-3 py-2 text-gray-600">1a Taxable (net)</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box1a)}</td></tr>
+                  <tr className="bg-blue-50/50"><td className="px-3 py-2 text-gray-600">1b VAT on taxable</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box1b)}</td></tr>
+                  <tr className="bg-blue-50/50"><td className="px-3 py-2 text-gray-600">2 Zero-rated</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box2)}</td></tr>
+                  <tr className="bg-blue-50/50"><td className="px-3 py-2 text-gray-600">3 Exempt</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box3)}</td></tr>
+                  <tr className="bg-blue-50/50"><td className="px-3 py-2 text-gray-600">4 Reverse charge</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box4)}</td></tr>
+                  <tr className="bg-green-50/50"><td className="px-3 py-2 font-medium text-gray-800" rowSpan="4">2 – Purchases (Input VAT)</td><td className="px-3 py-2 text-gray-600">9b Recoverable input</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box9b)}</td></tr>
+                  <tr className="bg-green-50/50"><td className="px-3 py-2 text-gray-600">10 Reverse ch. VAT</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box10)}</td></tr>
+                  <tr className="bg-green-50/50"><td className="px-3 py-2 text-gray-600">11 Input adj.</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box11)}</td></tr>
+                  <tr className="bg-green-50/50"><td className="px-3 py-2 text-gray-600">12 Total recoverable</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(v.box12)}</td></tr>
+                  <tr className="bg-slate-100/50"><td className="px-3 py-2 font-medium text-gray-800" rowSpan="3">3 – Payable / Refund</td><td className="px-3 py-2 text-gray-600">13a Payable</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(v.box13a)}</td></tr>
+                  <tr className="bg-slate-100/50"><td className="px-3 py-2 text-gray-600">13b Refundable</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(v.box13b ?? 0)}</td></tr>
+                  <tr className="bg-slate-100/50"><td className="px-3 py-2 text-gray-600">Petroleum excluded</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(v.petroleumExcluded ?? 0)}</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
               </>
