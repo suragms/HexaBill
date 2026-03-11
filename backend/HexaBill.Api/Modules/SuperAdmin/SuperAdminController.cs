@@ -59,14 +59,19 @@ namespace HexaBill.Api.Modules.SuperAdmin
                     var list = await _context.Settings
                         .Where(s => s.TenantId == CurrentTenantId || s.OwnerId == CurrentTenantId)
                         .ToListAsync();
+                    // Prefer OwnerId row when it has a value; else take any non-empty (fixes production logo lost when owner row was empty)
                     settings = list
                         .GroupBy(s => s.Key)
-                        .ToDictionary(g => g.Key, g => g.OrderByDescending(s => s.OwnerId == CurrentTenantId).First().Value ?? "");
+                        .ToDictionary(g => g.Key, g =>
+                        {
+                            var ordered = g.OrderByDescending(s => s.OwnerId == CurrentTenantId).ThenByDescending(s => !string.IsNullOrWhiteSpace(s.Value)).ToList();
+                            return ordered.First().Value ?? "";
+                        });
                     // Ensure COMPANY_LOGO is set from LOGO_PUBLIC_URL or COMPANY_LOGO so logo persists after refresh/login
-                    var logoUrl = settings.GetValueOrDefault("LOGO_PUBLIC_URL") ?? settings.GetValueOrDefault("COMPANY_LOGO") ?? "";
+                    var logoUrl = (settings.TryGetValue("LOGO_PUBLIC_URL", out var u) ? u : null) ?? (settings.TryGetValue("COMPANY_LOGO", out var c) ? c : null) ?? "";
                     if (string.IsNullOrWhiteSpace(logoUrl))
                     {
-                        var logoEntry = list.OrderByDescending(s => s.OwnerId == CurrentTenantId).FirstOrDefault(s => (string.Equals(s.Key, "company_logo", StringComparison.OrdinalIgnoreCase) || string.Equals(s.Key, "COMPANY_LOGO", StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrWhiteSpace(s.Value));
+                        var logoEntry = list.OrderByDescending(s => !string.IsNullOrWhiteSpace(s.Value)).ThenByDescending(s => s.OwnerId == CurrentTenantId).FirstOrDefault(s => (string.Equals(s.Key, "company_logo", StringComparison.OrdinalIgnoreCase) || string.Equals(s.Key, "COMPANY_LOGO", StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrWhiteSpace(s.Value));
                         if (logoEntry != null) logoUrl = logoEntry.Value ?? "";
                     }
                     if (!string.IsNullOrWhiteSpace(logoUrl))

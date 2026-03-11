@@ -128,8 +128,10 @@ namespace HexaBill.Api.Modules.SuperAdmin
                             var key = reader.GetString(0);
                             var value = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
                             var ownerId = reader.GetInt32(2);
-                            // Prefer row where OwnerId = tenantId so logo/owner settings persist after refresh (avoid overwriting with legacy TenantId-only row)
-                            if (!settings.ContainsKey(key) || ownerId == tenantId)
+                            // Prefer OwnerId=tenantId when it has a value; never overwrite non-empty with empty (fixes production logo lost when owner row was empty and legacy row had URL)
+                            if (!settings.TryGetValue(key, out var existing) || string.IsNullOrWhiteSpace(existing))
+                                settings[key] = value;
+                            else if (ownerId == tenantId && !string.IsNullOrWhiteSpace(value))
                                 settings[key] = value;
                         }
 
@@ -159,7 +161,11 @@ namespace HexaBill.Api.Modules.SuperAdmin
 
                 var settings = list
                     .GroupBy(s => s.Key)
-                    .ToDictionary(g => g.Key, g => g.OrderByDescending(s => s.OwnerId == tenantId).First().Value ?? string.Empty);
+                    .ToDictionary(g => g.Key, g =>
+                    {
+                        var ordered = g.OrderByDescending(s => s.OwnerId == tenantId).ThenByDescending(s => !string.IsNullOrWhiteSpace(s.Value)).ToList();
+                        return ordered.First().Value ?? string.Empty;
+                    });
 
                 if (settings.Any())
                 {
