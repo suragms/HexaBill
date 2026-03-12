@@ -93,9 +93,6 @@ namespace HexaBill.Api.Modules.Reports
                     fromDate = gst.AddMonths(-3);
                     toDate = gst;
                 }
-                var result = await _vatReturnReportService.GetVatReturn201Async(tenantId, fromDate, toDate);
-                var periodStartDate = fromDate.Date.ToUtcKind();
-                var periodEndInclusive = toDate.AddDays(-1).Date.ToUtcKind();
                 DateTime calendarFrom;
                 DateTime calendarTo;
                 if (from.HasValue && to.HasValue)
@@ -111,9 +108,12 @@ namespace HexaBill.Api.Modules.Reports
                 }
                 else
                 {
-                    calendarFrom = periodStartDate;
-                    calendarTo = periodEndInclusive;
+                    calendarFrom = fromDate.Date;
+                    calendarTo = toDate.AddDays(-1).Date;
                 }
+                var result = await _vatReturnReportService.GetVatReturn201Async(tenantId, fromDate, toDate, calendarFrom, calendarTo);
+                var periodStartDate = fromDate.Date.ToUtcKind();
+                var periodEndInclusive = toDate.AddDays(-1).Date.ToUtcKind();
                 var (periodLabel, dueDate) = VatReturnReportService.GetPeriodLabelAndDue(calendarFrom, calendarTo);
                 result.PeriodLabel = periodLabel;
                 result.DueDate = dueDate;

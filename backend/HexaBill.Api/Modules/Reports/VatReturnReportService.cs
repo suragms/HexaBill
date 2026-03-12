@@ -15,6 +15,7 @@ namespace HexaBill.Api.Modules.Reports
     {
         Task<VatReturnDto> GetVatReturnAsync(int tenantId, int quarter, int year);
         Task<VatReturn201Dto> GetVatReturn201Async(int tenantId, DateTime fromDate, DateTime toDate);
+        Task<VatReturn201Dto> GetVatReturn201Async(int tenantId, DateTime fromDate, DateTime toDate, DateTime? fromCalendarInclusive, DateTime? toCalendarInclusive);
     }
 
     public class VatReturnReportService : IVatReturnReportService
@@ -52,9 +53,15 @@ namespace HexaBill.Api.Modules.Reports
 
         public async Task<VatReturn201Dto> GetVatReturn201Async(int tenantId, DateTime fromDate, DateTime toDate)
         {
+            return await GetVatReturn201Async(tenantId, fromDate, toDate, null, null);
+        }
+
+        /// <summary>Get VAT return. When fromCalendar and toCalendar are provided, filter by calendar dates (inclusive) so data matches dashboard regardless of timezone.</summary>
+        public async Task<VatReturn201Dto> GetVatReturn201Async(int tenantId, DateTime fromDate, DateTime toDate, DateTime? fromCalendarInclusive, DateTime? toCalendarInclusive)
+        {
             try
             {
-                return await GetVatReturn201InternalAsync(tenantId, fromDate, toDate);
+                return await GetVatReturn201InternalAsync(tenantId, fromDate, toDate, fromCalendarInclusive, toCalendarInclusive);
             }
             catch (Exception ex)
             {
@@ -80,17 +87,27 @@ namespace HexaBill.Api.Modules.Reports
             }
         }
 
-        private async Task<VatReturn201Dto> GetVatReturn201InternalAsync(int tenantId, DateTime fromDate, DateTime toDate)
+        private async Task<VatReturn201Dto> GetVatReturn201InternalAsync(int tenantId, DateTime fromDate, DateTime toDate, DateTime? fromCalendarInclusive, DateTime? toCalendarInclusive)
         {
-            // Controller passes UTC range: fromDate = period start, toDate = exclusive end (start of next day in tenant TZ).
-            var from = fromDate.ToUtcKind();
-            var to = toDate.ToUtcKind();
+            // Prefer calendar-date range when provided so VAT data matches dashboard (same calendar period).
+            DateTime from;
+            DateTime to;
+            if (fromCalendarInclusive.HasValue && toCalendarInclusive.HasValue)
+            {
+                from = fromCalendarInclusive.Value.Date;
+                to = toCalendarInclusive.Value.Date.AddDays(1); // exclusive end
+            }
+            else
+            {
+                from = fromDate.ToUtcKind();
+                to = toDate.ToUtcKind();
+            }
             var outputLines = new List<VatReturnOutputLineDto>();
             var inputLines = new List<VatReturnInputLineDto>();
             var creditNoteLines = new List<VatReturnCreditNoteLineDto>();
             var reverseChargeLines = new List<VatReturnReverseChargeLineDto>();
 
-            // Resolve tenant: prefer TenantId, fallback OwnerId for backward compatibility
+            // Resolve tenant: prefer TenantId, fallback OwnerId for backward compatibility. Align with dashboard: also match TenantId when tenantId > 0.
             var salesInPeriod = await _context.Sales
                 .Include(s => s.Customer)
                 .Where(s => (s.TenantId != null ? s.TenantId == tenantId : s.OwnerId == tenantId) && !s.IsDeleted
