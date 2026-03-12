@@ -281,7 +281,17 @@ const VatReturnPage = () => {
 
   const [activeTab, setActiveTab] = useState('overview') // overview | transactions | sales | purchases | expenses | creditNotes | validation
   const v = vatReturn
-  const hasFta201 = v && typeof v.box1a === 'number'
+  // Normalize API response: support both camelCase and PascalCase so values always show
+  const box1a = v != null ? (v.box1a ?? v.Box1a ?? 0) : 0
+  const box1b = v != null ? (v.box1b ?? v.Box1b ?? 0) : 0
+  const box9b = v != null ? (v.box9b ?? v.Box9b ?? 0) : 0
+  const box12 = v != null ? (v.box12 ?? v.Box12 ?? 0) : 0
+  const box13a = v != null ? (v.box13a ?? v.Box13a ?? 0) : 0
+  const box13b = v != null ? (v.box13b ?? v.Box13b ?? 0) : 0
+  const outputLines = v?.outputLines ?? v?.OutputLines ?? []
+  const inputLines = v?.inputLines ?? v?.InputLines ?? []
+  const creditNoteLines = v?.creditNoteLines ?? v?.CreditNoteLines ?? []
+  const hasFta201 = v && (typeof box1a === 'number' || typeof v.box1a === 'number')
   const issues = (v?.validationIssues ?? v?.ValidationIssues ?? []).filter(Boolean)
   const blocking = issues.filter(i => (i.severity || '').toString() === 'Blocking')
   const hasV002 = issues.some(i => i.ruleId === 'V002')
@@ -628,7 +638,7 @@ const VatReturnPage = () => {
           )}
 
           {/* No transactions info – actionable message and period clarity */}
-          {v && (!v.outputLines?.length) && (!v.inputLines?.length) && (
+          {v && !outputLines.length && !inputLines.length && (
             <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
               <p className="font-medium">No transactions in this period.</p>
               <p className="mt-1 text-blue-700">Showing: {fromDate} – {toDate}. Try another date range (e.g. Last quarter) or check that invoices, purchases, and expenses exist for the selected period. FTA boxes below show zeros.</p>
@@ -636,7 +646,7 @@ const VatReturnPage = () => {
           )}
 
           {/* Hint when Total Sales is 0 so user knows period may not cover their invoice dates */}
-          {v && (v.box1a ?? 0) === 0 && (v.box1b ?? 0) === 0 && (
+          {v && box1a === 0 && box1b === 0 && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               <p className="font-medium">Total Sales is 0.00 for this period ({fromDate} – {toDate}).</p>
               <p className="mt-1 text-amber-700">VAT only includes invoices whose <strong>invoice date</strong> falls in this range. If your dashboard shows sales for other dates, pick a period that includes those dates (e.g. same custom range as on the dashboard, or Q1–Q4 for the year when you had sales).</p>
@@ -689,22 +699,22 @@ const VatReturnPage = () => {
                       <tr>
                         <td className="px-3 py-2 font-medium">1</td>
                         <td className="px-3 py-2 text-gray-700">Total Sales</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box1a ?? 0)}</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box1b ?? 0)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(box1a)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(box1b)}</td>
                       </tr>
                       <tr>
                         <td className="px-3 py-2 font-medium">2</td>
                         <td className="px-3 py-2 text-gray-700">Total Purchase and Expense</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box9b ?? 0)}</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box12 ?? 0)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(box9b)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(box12)}</td>
                       </tr>
-                      <tr className={(v.box13a ?? 0) > 0 ? 'bg-red-50' : 'bg-green-50'}>
+                      <tr className={box13a > 0 ? 'bg-red-50' : 'bg-green-50'}>
                         <td className="px-3 py-2 font-medium">3</td>
                         <td className="px-3 py-2 font-medium">Net VAT to Pay / Refundable</td>
                         <td className="px-3 py-2 text-right font-medium" colSpan="2">
-                          <span className={(v.box13a ?? 0) > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
-                            {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? v.Box13b ?? 0)}
-                            {(v.box13a ?? 0) > 0 ? ' (Payable)' : ' (Refundable)'}
+                          <span className={box13a > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
+                            {box13a > 0 ? formatCurrency(box13a) : formatCurrency(box13b)}
+                            {box13a > 0 ? ' (Payable)' : ' (Refundable)'}
                           </span>
                         </td>
                       </tr>
@@ -716,11 +726,11 @@ const VatReturnPage = () => {
                 )}
               </div>
               {/* Footer bar: Amount Due to FTA / Refund from FTA + filing deadline */}
-              <div className={`border-t border-gray-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 ${(v.box13a ?? 0) > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+              <div className={`border-t border-gray-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 ${box13a > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
                 <div>
-                  <p className="text-sm font-medium text-gray-700">{(v.box13a ?? 0) > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${(v.box13a ?? 0) > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                    {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? v.Box13b ?? 0)}
+                  <p className="text-sm font-medium text-gray-700">{box13a > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
+                  <p className={`text-2xl font-bold mt-0.5 ${box13a > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                    {box13a > 0 ? formatCurrency(box13a) : formatCurrency(box13b)}
                   </p>
                 </div>
                 <div className="text-right">
@@ -752,22 +762,22 @@ const VatReturnPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {(v.outputLines ?? []).map((line, idx) => (
+                    {outputLines.map((line, idx) => (
                       <tr key={`out-${idx}`} className="border-t">
                         <td className="px-2 py-1 text-gray-700">Output</td>
-                        <td className="px-2 py-1">{line.reference}</td>
-                        <td className="px-2 py-1">{line.date && new Date(line.date).toLocaleDateString('en-GB')}</td>
-                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
-                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? 0)}</td>
+                        <td className="px-2 py-1">{line.reference ?? line.Reference ?? ''}</td>
+                        <td className="px-2 py-1">{(line.date ?? line.Date) && new Date(line.date ?? line.Date).toLocaleDateString('en-GB')}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? line.NetAmount ?? 0)}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? line.VatAmount ?? 0)}</td>
                       </tr>
                     ))}
-                    {(v.inputLines ?? []).map((line, idx) => (
+                    {inputLines.map((line, idx) => (
                       <tr key={`in-${idx}`} className="border-t">
                         <td className="px-2 py-1 text-gray-700">Input</td>
-                        <td className="px-2 py-1">{line.reference}</td>
-                        <td className="px-2 py-1">{line.date && new Date(line.date).toLocaleDateString('en-GB')}</td>
-                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
-                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? 0)}</td>
+                        <td className="px-2 py-1">{line.reference ?? line.Reference ?? ''}</td>
+                        <td className="px-2 py-1">{(line.date ?? line.Date) && new Date(line.date ?? line.Date).toLocaleDateString('en-GB')}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? line.NetAmount ?? 0)}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? line.VatAmount ?? line.claimableVat ?? line.ClaimableVat ?? 0)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -791,15 +801,15 @@ const VatReturnPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {(v.outputLines ?? [])
-                      .filter(line => (line.vatScenario || '').toLowerCase() !== 'exempt')
+                    {outputLines
+                      .filter(line => ((line.vatScenario ?? line.VatScenario) || '').toLowerCase() !== 'exempt')
                       .map((line, idx) => (
                         <tr key={idx} className="border-t">
-                          <td className="px-2 py-1">{line.reference}</td>
-                          <td className="px-2 py-1">{line.customerName}</td>
-                          <td className="px-2 py-1">{line.vatScenario}</td>
-                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
-                          <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? 0)}</td>
+                          <td className="px-2 py-1">{line.reference ?? line.Reference ?? ''}</td>
+                          <td className="px-2 py-1">{line.customerName ?? line.CustomerName ?? ''}</td>
+                          <td className="px-2 py-1">{line.vatScenario ?? line.VatScenario ?? ''}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? line.NetAmount ?? 0)}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? line.VatAmount ?? 0)}</td>
                         </tr>
                       ))}
                   </tbody>
@@ -823,15 +833,15 @@ const VatReturnPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {(v.inputLines ?? [])
-                      .filter(line => line.type === 'Purchase')
+                    {inputLines
+                      .filter(line => (line.type ?? line.Type) === 'Purchase')
                       .map((line, idx) => (
                         <tr key={idx} className="border-t">
-                          <td className="px-2 py-1">{line.reference}</td>
-                          <td className="px-2 py-1">{line.supplierName}</td>
-                          <td className="px-2 py-1">{line.taxType}</td>
-                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
-                          <td className="px-2 py-1 text-right">{formatCurrency(line.claimableVat ?? 0)}</td>
+                          <td className="px-2 py-1">{line.reference ?? line.Reference ?? ''}</td>
+                          <td className="px-2 py-1">{line.supplierName ?? line.SupplierName ?? ''}</td>
+                          <td className="px-2 py-1">{line.taxType ?? line.TaxType ?? ''}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? line.NetAmount ?? 0)}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.claimableVat ?? line.ClaimableVat ?? 0)}</td>
                         </tr>
                       ))}
                   </tbody>
@@ -855,15 +865,15 @@ const VatReturnPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {(v.inputLines ?? [])
-                      .filter(line => line.type === 'Expense')
+                    {inputLines
+                      .filter(line => (line.type ?? line.Type) === 'Expense')
                       .map((line, idx) => (
                         <tr key={idx} className="border-t">
-                          <td className="px-2 py-1">{line.reference}</td>
-                          <td className="px-2 py-1">{line.categoryName}</td>
-                          <td className="px-2 py-1">{line.taxType}</td>
-                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
-                          <td className="px-2 py-1 text-right">{formatCurrency(line.claimableVat ?? 0)}</td>
+                          <td className="px-2 py-1">{line.reference ?? line.Reference ?? ''}</td>
+                          <td className="px-2 py-1">{line.categoryName ?? line.CategoryName ?? ''}</td>
+                          <td className="px-2 py-1">{line.taxType ?? line.TaxType ?? ''}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? line.NetAmount ?? 0)}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.claimableVat ?? line.ClaimableVat ?? 0)}</td>
                         </tr>
                       ))}
                   </tbody>
@@ -887,13 +897,13 @@ const VatReturnPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {(v.creditNoteLines ?? []).map((line, idx) => (
+                    {creditNoteLines.map((line, idx) => (
                       <tr key={idx} className="border-t">
-                        <td className="px-2 py-1">{line.reference}</td>
-                        <td className="px-2 py-1">{line.side}</td>
-                        <td className="px-2 py-1">{line.date && new Date(line.date).toLocaleDateString('en-GB')}</td>
-                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
-                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? 0)}</td>
+                        <td className="px-2 py-1">{line.reference ?? line.Reference ?? ''}</td>
+                        <td className="px-2 py-1">{line.side ?? line.Side ?? ''}</td>
+                        <td className="px-2 py-1">{(line.date ?? line.Date) && new Date(line.date ?? line.Date).toLocaleDateString('en-GB')}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? line.NetAmount ?? 0)}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? line.VatAmount ?? 0)}</td>
                       </tr>
                     ))}
                   </tbody>

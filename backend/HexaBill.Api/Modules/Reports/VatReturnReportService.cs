@@ -1,5 +1,6 @@
 /*
-Purpose: FTA VAT 201 Return report - UAE quarterly VAT filing
+Purpose: FTA VAT 201 Return report - UAE quarterly VAT filing.
+All box calculations are validated by VatReturnValidationService (V001–V014) to prevent wrong calculation.
 Author: HexaBill
 Date: 2025
 */
@@ -284,7 +285,8 @@ namespace HexaBill.Api.Modules.Reports
             _logger.LogInformation("VAT return: tenant {TenantId}, period {From} to {To}: Sales={Sales}, Purchases={Purchases}, Expenses={Expenses}, TotalLines={Total}.",
                 tenantId, fromDate.ToString("yyyy-MM-dd"), periodEndInclusive.ToString("yyyy-MM-dd"), salesInPeriod.Count, purchasesInPeriod.Count, expensesInPeriod.Count, txCount);
 
-            return new VatReturn201Dto
+            // Assurance: pre-round box totals for DTO so validation (V009–V011) can cross-check
+            var dto = new VatReturn201Dto
             {
                 PeriodLabel = periodLabel,
                 PeriodStart = fromDate,
@@ -309,6 +311,9 @@ namespace HexaBill.Api.Modules.Reports
                 CreditNoteLines = creditNoteLines,
                 ReverseChargeLines = reverseChargeLines
             };
+            _logger.LogDebug("VAT return assurance: tenant {TenantId} Box1a={Box1a}, Box1b={Box1b}, Box9b={Box9b}, Box12={Box12}, Box13a={Box13a}, Box13b={Box13b}.",
+                tenantId, dto.Box1a, dto.Box1b, dto.Box9b, dto.Box12, dto.Box13a, dto.Box13b);
+            return dto;
         }
 
         private static bool IsStandardRated(Sale s)

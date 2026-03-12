@@ -1,5 +1,10 @@
 /*
-Purpose: FTA VAT return validation rules (V001–V012) and locked-period check.
+Purpose: FTA VAT return validation (V001–V012) and assurance rules to prevent wrong calculation.
+- V001: VAT amount vs net×rate; V002: VatScenario required; V004: no duplicate refs; V005: petroleum; V008: not both 13a/13b.
+- V009: Box1a/1b must match sum of output lines minus credit notes (assurance).
+- V010: Box12 = Box9b + Box10 - Box11 (recoverable formula).
+- V011: Box13a/13b = max(0, 1b-12) / max(0, 12-1b) (net VAT formula).
+- V012: zero invoice zero VAT; V014: input lines claimable vs Box9b (warning).
 Author: HexaBill
 Date: 2026
 */
@@ -174,6 +179,70 @@ namespace HexaBill.Api.Modules.Reports
                         Severity = "Blocking",
                         Message = "Cannot have both payable (13a) and refundable (13b) VAT in the same period.",
                         EntityRef = null
+                    });
+                }
+
+                // --- Assurance: advance tracking to prevent wrong calculation ---
+                const decimal tolerance = 0.02m;
+                const decimal toleranceBox1 = 0.05m; // Box1a/1b are sum of rounded line values; allow rounding drift
+
+                // V009: Standard-rated output lines (sales minus output credit notes) must match Box1a and Box1b
+                var standardOutputNet = precomputed.OutputLines?.Where(l => string.Equals(l.VatScenario, "Standard", StringComparison.OrdinalIgnoreCase)).Sum(l => l.NetAmount) ?? 0;
+                var standardOutputVat = precomputed.OutputLines?.Where(l => string.Equals(l.VatScenario, "Standard", StringComparison.OrdinalIgnoreCase)).Sum(l => l.VatAmount) ?? 0;
+                var creditOutputNet = precomputed.CreditNoteLines?.Where(c => string.Equals(c.Side, "Output", StringComparison.OrdinalIgnoreCase)).Sum(c => c.NetAmount) ?? 0;
+                var creditOutputVat = precomputed.CreditNoteLines?.Where(c => string.Equals(c.Side, "Output", StringComparison.OrdinalIgnoreCase)).Sum(c => c.VatAmount) ?? 0;
+                var expectedBox1a = standardOutputNet - creditOutputNet;
+                var expectedBox1b = standardOutputVat - creditOutputVat;
+                if (Math.Abs(precomputed.Box1a - expectedBox1a) > toleranceBox1 || Math.Abs(precomputed.Box1b - expectedBox1b) > toleranceBox1)
+                {
+                    issues.Add(new ValidationIssueDto
+                    {
+                        RuleId = "V009",
+                        Severity = "Blocking",
+                        Message = $"Box 1a/1b consistency: calculated from lines (1a={expectedBox1a:N2}, 1b={expectedBox1b:N2}) does not match return (1a={precomputed.Box1a:N2}, 1b={precomputed.Box1b:N2}).",
+                        EntityRef = "VatReturn:Box1"
+                    });
+                }
+
+                // V010: Box12 = Box9b + Box10 - Box11 (recoverable tax formula)
+                var expectedBox12 = precomputed.Box9b + precomputed.Box10 - precomputed.Box11;
+                if (expectedBox12 < 0) expectedBox12 = 0;
+                if (Math.Abs(precomputed.Box12 - expectedBox12) > tolerance)
+                {
+                    issues.Add(new ValidationIssueDto
+                    {
+                        RuleId = "V010",
+                        Severity = "Blocking",
+                        Message = $"Box 12 (recoverable) must equal Box9b + Box10 - Box11. Expected {expectedBox12:N2}, got {precomputed.Box12:N2}.",
+                        EntityRef = "VatReturn:Box12"
+                    });
+                }
+
+                // V011: Box13a = max(0, Box1b - Box12), Box13b = max(0, Box12 - Box1b)
+                var expected13a = Math.Max(0, precomputed.Box1b - precomputed.Box12);
+                var expected13b = Math.Max(0, precomputed.Box12 - precomputed.Box1b);
+                if (Math.Abs(precomputed.Box13a - expected13a) > tolerance || Math.Abs(precomputed.Box13b - expected13b) > tolerance)
+                {
+                    issues.Add(new ValidationIssueDto
+                    {
+                        RuleId = "V011",
+                        Severity = "Blocking",
+                        Message = $"Net VAT (13a/13b) must follow formula: 13a=max(0,1b-12), 13b=max(0,12-1b). Expected 13a={expected13a:N2}, 13b={expected13b:N2}; got 13a={precomputed.Box13a:N2}, 13b={precomputed.Box13b:N2}.",
+                        EntityRef = "VatReturn:Box13"
+                    });
+                }
+
+                // V014: Input lines claimable sum vs Box9b (warning; Box9b is rounded per-line so small drift allowed)
+                const decimal toleranceInput = 0.10m;
+                var inputClaimableSum = precomputed.InputLines?.Sum(l => l.ClaimableVat) ?? 0;
+                if (precomputed.Box9b >= 0 && inputClaimableSum >= 0 && Math.Abs(precomputed.Box9b - inputClaimableSum) > toleranceInput)
+                {
+                    issues.Add(new ValidationIssueDto
+                    {
+                        RuleId = "V014",
+                        Severity = "Warning",
+                        Message = $"Input lines claimable VAT sum ({inputClaimableSum:N2}) differs from Box 9b ({precomputed.Box9b:N2}). Verify purchases/expenses.",
+                        EntityRef = "VatReturn:Box9b"
                     });
                 }
             }
