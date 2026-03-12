@@ -1717,6 +1717,11 @@ namespace HexaBill.Api.Models
     {
         public DateTime? From { get; set; }
         public DateTime? To { get; set; }
+        /// <summary>
+        /// When true, the server will emit additional diagnostic logging about which transactions were used.
+        /// This is intended for support/debug scenarios and is optional.
+        /// </summary>
+        public bool Diagnostics { get; set; }
     }
 }
 

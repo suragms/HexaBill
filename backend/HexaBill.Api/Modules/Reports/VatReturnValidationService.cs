@@ -47,6 +47,24 @@ namespace HexaBill.Api.Modules.Reports
             var fromUtc = from.ToUtcKind();
             var toEnd = to.Date.AddDays(1).ToUtcKind();
 
+            // V-PERIOD-DATE: ensure all included sales fall within the selected VAT period
+            var outOfRangeSales = await _context.Sales
+                .Where(s => (s.TenantId != null ? s.TenantId == tenantId : s.OwnerId == tenantId)
+                    && !s.IsDeleted
+                    && (s.InvoiceDate < fromUtc || s.InvoiceDate >= toEnd))
+                .Select(s => new { s.Id, s.InvoiceNo, s.InvoiceDate })
+                .ToListAsync();
+            foreach (var s in outOfRangeSales)
+            {
+                issues.Add(new ValidationIssueDto
+                {
+                    RuleId = "V-PERIOD-DATE",
+                    Severity = "Warning",
+                    Message = $"Sale {s.InvoiceNo} has invoice date {s.InvoiceDate:yyyy-MM-dd} outside the selected VAT period.",
+                    EntityRef = $"Sale:{s.Id}:{s.InvoiceNo}"
+                });
+            }
+
             // V002: All sales in period have VatScenario
             var salesWithoutScenario = await _context.Sales
                 .Where(s => (s.TenantId != null ? s.TenantId == tenantId : s.OwnerId == tenantId)

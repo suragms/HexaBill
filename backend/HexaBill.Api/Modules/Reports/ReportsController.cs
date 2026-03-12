@@ -62,6 +62,15 @@ namespace HexaBill.Api.Modules.Reports
                 DateTime toDate;
                 if (from.HasValue && to.HasValue)
                 {
+                    // Enforce VAT period shape: either exact quarter or full calendar year.
+                    if (!IsSupportedVatPeriod(from.Value.Date, to.Value.Date, out var periodError))
+                    {
+                        return BadRequest(new ApiResponse<object>
+                        {
+                            Success = false,
+                            Message = periodError
+                        });
+                    }
                     // Align with dashboard: treat from/to as date-only in tenant timezone, then convert to UTC
                     var fromLocal = new DateTime(from.Value.Year, from.Value.Month, from.Value.Day, 0, 0, 0, DateTimeKind.Unspecified);
                     var toEndLocal = new DateTime(to.Value.Year, to.Value.Month, to.Value.Day, 0, 0, 0, DateTimeKind.Unspecified).AddDays(1);
@@ -156,6 +165,9 @@ namespace HexaBill.Api.Modules.Reports
                 if (tenantId <= 0 && !IsSystemAdmin) return Forbid();
                 if (request?.From == null || request.To == null)
                     return BadRequest(new ApiResponse<VatReturn201Dto> { Success = false, Message = "From and To dates are required." });
+                // Enforce VAT period shape for custom ranges as well.
+                if (!IsSupportedVatPeriod(request.From.Value.Date, request.To.Value.Date, out var periodError))
+                    return BadRequest(new ApiResponse<VatReturn201Dto> { Success = false, Message = periodError });
                 var fromLocal = new DateTime(request.From.Value.Year, request.From.Value.Month, request.From.Value.Day, 0, 0, 0, DateTimeKind.Unspecified);
                 var toEndLocal = new DateTime(request.To.Value.Year, request.To.Value.Month, request.To.Value.Day, 0, 0, 0, DateTimeKind.Unspecified).AddDays(1);
                 var from = _timeZoneService.ConvertToUtc(fromLocal).ToUtcKind();
@@ -217,6 +229,23 @@ namespace HexaBill.Api.Modules.Reports
                 dto.Status = period.Status;
                 dto.CalculatedAt = period.CalculatedAt;
                 dto.ValidationIssues = await _vatValidation.ValidatePeriodAsync(tenantId, from, to, dto);
+
+                if (request.Diagnostics)
+                {
+                    _logger.LogInformation(
+                        "VAT diagnostics for tenant {TenantId}, period {From} to {To}: OutputLines={OutputCount}, InputLines={InputCount}, CreditNotes={CreditCount}, ReverseCharges={ReverseCount}, Box1b(OutputVat)={OutputVat}, Box12(InputVat)={InputVat}, NetPayable(13a)={Box13a}, NetRefundable(13b)={Box13b}.",
+                        tenantId,
+                        from.ToString("yyyy-MM-dd"),
+                        to.ToString("yyyy-MM-dd"),
+                        dto.OutputLines?.Count ?? 0,
+                        dto.InputLines?.Count ?? 0,
+                        dto.CreditNoteLines?.Count ?? 0,
+                        dto.ReverseChargeLines?.Count ?? 0,
+                        dto.Box1b,
+                        dto.Box12,
+                        dto.Box13a,
+                        dto.Box13b);
+                }
                 return Ok(new ApiResponse<VatReturn201Dto> { Success = true, Data = dto });
             }
             catch (Exception ex)
@@ -228,6 +257,41 @@ namespace HexaBill.Api.Modules.Reports
                     Message = "VAT calculation failed. Check Render logs for details. " + (ex.InnerException?.Message ?? ex.Message)
                 });
             }
+        }
+
+        /// <summary>
+        /// Valid VAT periods: either an exact calendar quarter (3 months, starting on 1st and ending on last day)
+        /// or a full calendar year (Jan 1 to Dec 31). Custom odd ranges are rejected to avoid accidentally mixing periods.
+        /// </summary>
+        private static bool IsSupportedVatPeriod(DateTime from, DateTime to, out string error)
+        {
+            error = string.Empty;
+            var start = from.Date;
+            var end = to.Date;
+            if (start > end)
+            {
+                error = "From date must be before To date.";
+                return false;
+            }
+
+            // Full calendar year (e.g. 2025-01-01 to 2025-12-31)
+            if (start.Day == 1 && start.Month == 1 && end.Month == 12 && end.Day == DateTime.DaysInMonth(end.Year, 12) && start.Year == end.Year)
+            {
+                return true;
+            }
+
+            // Exact quarter: 3 full months within same calendar year
+            if (start.Day == 1 && end.Day == DateTime.DaysInMonth(end.Year, end.Month) && start.Year == end.Year)
+            {
+                var monthsInclusive = (end.Year - start.Year) * 12 + (end.Month - start.Month) + 1;
+                if (monthsInclusive == 3 && (start.Month == 1 || start.Month == 4 || start.Month == 7 || start.Month == 10))
+                {
+                    return true;
+                }
+            }
+
+            error = "VAT period must be a full quarter (Q1–Q4) or a full calendar year (01-Jan to 31-Dec).";
+            return false;
         }
 
         [HttpPost("vat-return/periods/{id:int}/lock")]

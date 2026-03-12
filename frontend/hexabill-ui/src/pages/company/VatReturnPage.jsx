@@ -155,6 +155,7 @@ const VatReturnPage = () => {
     }
   }
 
+  const [activeTab, setActiveTab] = useState('overview') // overview | transactions | sales | purchases | expenses | creditNotes | validation
   const v = vatReturn
   const hasFta201 = v && typeof v.box1a === 'number'
   const issues = (v?.validationIssues ?? v?.ValidationIssues ?? []).filter(Boolean)
@@ -503,74 +504,286 @@ const VatReturnPage = () => {
             </div>
           )}
 
-          {/* Simple 3-row VAT summary (HydroBooks-style) – printable */}
-          <div className="vat-return-print-area bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="p-4">
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">VAT Return Summary</h2>
-              <p className="text-xs text-gray-500 mb-4">Period: {periodLabel} ({fromDate} – {toDate})</p>
+          {/* Tabs navigation */}
+          <div className="mt-4 border-b border-gray-200">
+            <nav className="-mb-px flex flex-wrap gap-4 text-sm" aria-label="VAT tabs">
+              {[
+                { id: 'overview', label: 'Overview' },
+                { id: 'transactions', label: 'Transactions' },
+                { id: 'sales', label: 'Sales' },
+                { id: 'purchases', label: 'Purchases' },
+                { id: 'expenses', label: 'Expenses' },
+                { id: 'creditNotes', label: 'Credit Notes' },
+                { id: 'validation', label: 'Validation' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`whitespace-nowrap border-b-2 pb-2 px-1 ${
+                    activeTab === tab.id ? 'border-primary-600 text-primary-700 font-medium' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Overview tab – simple FTA-style summary only */}
+          {activeTab === 'overview' && (
+            <div className="mt-4 vat-return-print-area bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="p-4">
+                <h2 className="text-lg font-semibold text-gray-900 mb-1">VAT Return Summary</h2>
+                <p className="text-xs text-gray-500 mb-4">Period: {periodLabel} ({fromDate} – {toDate})</p>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm border border-gray-200 rounded-lg">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">S#</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">Description</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">Amount (AED)</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">VAT (AED)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      <tr>
+                        <td className="px-3 py-2 font-medium">1</td>
+                        <td className="px-3 py-2 text-gray-700">Total Sales</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box1a ?? 0)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box1b ?? 0)}</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 font-medium">2</td>
+                        <td className="px-3 py-2 text-gray-700">Total Purchase and Expense</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box9b ?? 0)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box12 ?? 0)}</td>
+                      </tr>
+                      <tr className={(v.box13a ?? 0) > 0 ? 'bg-red-50' : 'bg-green-50'}>
+                        <td className="px-3 py-2 font-medium">3</td>
+                        <td className="px-3 py-2 font-medium">Net VAT to Pay / Refundable</td>
+                        <td className="px-3 py-2 text-right font-medium" colSpan="2">
+                          <span className={(v.box13a ?? 0) > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
+                            {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? v.Box13b ?? 0)}
+                            {(v.box13a ?? 0) > 0 ? ' (Payable)' : ' (Refundable)'}
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                {(v.petroleumExcluded ?? 0) > 0 && (
+                  <p className="mt-3 text-xs text-amber-700">Petroleum excluded: {formatCurrency(v.petroleumExcluded)}</p>
+                )}
+              </div>
+              {/* Footer bar: Amount Due to FTA / Refund from FTA + filing deadline */}
+              <div className={`border-t border-gray-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 ${(v.box13a ?? 0) > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                <div>
+                  <p className="text-sm font-medium text-gray-700">{(v.box13a ?? 0) > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
+                  <p className={`text-2xl font-bold mt-0.5 ${(v.box13a ?? 0) > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                    {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? v.Box13b ?? 0)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium text-gray-700">Filing deadline</p>
+                  <p className="text-lg font-semibold text-amber-900 mt-0.5">
+                    {v.dueDate ? new Date(v.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                  </p>
+                  {daysUntilDue != null && daysUntilDue <= 0 && <p className="text-xs font-medium text-red-600">Overdue</p>}
+                  {daysUntilDue != null && daysUntilDue > 0 && <p className="text-xs text-gray-500">{daysUntilDue} days left</p>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Transactions-related tabs – simple tables, no dashboards */}
+          {activeTab === 'transactions' && (
+            <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4 space-y-4">
+              <h2 className="text-sm font-semibold text-gray-900">All VAT Transactions</h2>
+              <p className="text-xs text-gray-500 mb-2">Combined view of sales outputs and purchase/expense inputs used in this VAT period.</p>
               <div className="overflow-x-auto">
-                <table className="min-w-full text-sm border border-gray-200 rounded-lg">
+                <table className="min-w-full text-xs border border-gray-200 rounded-lg">
                   <thead>
                     <tr className="bg-gray-50">
-                      <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">S#</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">Description</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">Amount (AED)</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">VAT (AED)</th>
+                      <th className="px-2 py-1 text-left border-b">Type</th>
+                      <th className="px-2 py-1 text-left border-b">Reference</th>
+                      <th className="px-2 py-1 text-left border-b">Date</th>
+                      <th className="px-2 py-1 text-right border-b">Net</th>
+                      <th className="px-2 py-1 text-right border-b">VAT</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    <tr>
-                      <td className="px-3 py-2 font-medium">1</td>
-                      <td className="px-3 py-2 text-gray-700">Total Sales</td>
-                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box1a ?? 0)}</td>
-                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box1b ?? 0)}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">2</td>
-                      <td className="px-3 py-2 text-gray-700">Total Purchase and Expense</td>
-                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box9b ?? 0)}</td>
-                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(v.box12 ?? 0)}</td>
-                    </tr>
-                    <tr className={(v.box13a ?? 0) > 0 ? 'bg-red-50' : 'bg-green-50'}>
-                      <td className="px-3 py-2 font-medium">3</td>
-                      <td className="px-3 py-2 font-medium">Net VAT to Pay / Refundable</td>
-                      <td className="px-3 py-2 text-right font-medium" colSpan="2">
-                        <span className={(v.box13a ?? 0) > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
-                          {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? v.Box13b ?? 0)}
-                          {(v.box13a ?? 0) > 0 ? ' (Payable)' : ' (Refundable)'}
-                        </span>
-                      </td>
-                    </tr>
+                  <tbody>
+                    {(v.outputLines ?? []).map((line, idx) => (
+                      <tr key={`out-${idx}`} className="border-t">
+                        <td className="px-2 py-1 text-gray-700">Output</td>
+                        <td className="px-2 py-1">{line.reference}</td>
+                        <td className="px-2 py-1">{line.date && new Date(line.date).toLocaleDateString('en-GB')}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? 0)}</td>
+                      </tr>
+                    ))}
+                    {(v.inputLines ?? []).map((line, idx) => (
+                      <tr key={`in-${idx}`} className="border-t">
+                        <td className="px-2 py-1 text-gray-700">Input</td>
+                        <td className="px-2 py-1">{line.reference}</td>
+                        <td className="px-2 py-1">{line.date && new Date(line.date).toLocaleDateString('en-GB')}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? 0)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
-              {(v.petroleumExcluded ?? 0) > 0 && (
-                <p className="mt-3 text-xs text-amber-700">Petroleum excluded: {formatCurrency(v.petroleumExcluded)}</p>
+            </div>
+          )}
+
+          {activeTab === 'sales' && (
+            <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
+              <h2 className="text-sm font-semibold text-gray-900">Sales Invoices (Output VAT)</h2>
+              <div className="overflow-x-auto mt-2">
+                <table className="min-w-full text-xs border border-gray-200 rounded-lg">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-2 py-1 text-left border-b">Invoice</th>
+                      <th className="px-2 py-1 text-left border-b">Customer</th>
+                      <th className="px-2 py-1 text-left border-b">Scenario</th>
+                      <th className="px-2 py-1 text-right border-b">Net</th>
+                      <th className="px-2 py-1 text-right border-b">VAT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(v.outputLines ?? [])
+                      .filter(line => (line.vatScenario || '').toLowerCase() !== 'exempt')
+                      .map((line, idx) => (
+                        <tr key={idx} className="border-t">
+                          <td className="px-2 py-1">{line.reference}</td>
+                          <td className="px-2 py-1">{line.customerName}</td>
+                          <td className="px-2 py-1">{line.vatScenario}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? 0)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'purchases' && (
+            <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
+              <h2 className="text-sm font-semibold text-gray-900">Purchases (Input VAT)</h2>
+              <div className="overflow-x-auto mt-2">
+                <table className="min-w-full text-xs border border-gray-200 rounded-lg">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-2 py-1 text-left border-b">Bill</th>
+                      <th className="px-2 py-1 text-left border-b">Supplier</th>
+                      <th className="px-2 py-1 text-left border-b">Tax Type</th>
+                      <th className="px-2 py-1 text-right border-b">Net</th>
+                      <th className="px-2 py-1 text-right border-b">Claimable VAT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(v.inputLines ?? [])
+                      .filter(line => line.type === 'Purchase')
+                      .map((line, idx) => (
+                        <tr key={idx} className="border-t">
+                          <td className="px-2 py-1">{line.reference}</td>
+                          <td className="px-2 py-1">{line.supplierName}</td>
+                          <td className="px-2 py-1">{line.taxType}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.claimableVat ?? 0)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'expenses' && (
+            <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
+              <h2 className="text-sm font-semibold text-gray-900">Expenses (Input VAT)</h2>
+              <div className="overflow-x-auto mt-2">
+                <table className="min-w-full text-xs border border-gray-200 rounded-lg">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-2 py-1 text-left border-b">Expense</th>
+                      <th className="px-2 py-1 text-left border-b">Category</th>
+                      <th className="px-2 py-1 text-left border-b">Tax Type</th>
+                      <th className="px-2 py-1 text-right border-b">Net</th>
+                      <th className="px-2 py-1 text-right border-b">Claimable VAT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(v.inputLines ?? [])
+                      .filter(line => line.type === 'Expense')
+                      .map((line, idx) => (
+                        <tr key={idx} className="border-t">
+                          <td className="px-2 py-1">{line.reference}</td>
+                          <td className="px-2 py-1">{line.categoryName}</td>
+                          <td className="px-2 py-1">{line.taxType}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
+                          <td className="px-2 py-1 text-right">{formatCurrency(line.claimableVat ?? 0)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'creditNotes' && (
+            <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
+              <h2 className="text-sm font-semibold text-gray-900">Credit Notes (Sales & Purchases)</h2>
+              <div className="overflow-x-auto mt-2">
+                <table className="min-w-full text-xs border border-gray-200 rounded-lg">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-2 py-1 text-left border-b">Reference</th>
+                      <th className="px-2 py-1 text-left border-b">Side</th>
+                      <th className="px-2 py-1 text-left border-b">Date</th>
+                      <th className="px-2 py-1 text-right border-b">Net</th>
+                      <th className="px-2 py-1 text-right border-b">VAT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(v.creditNoteLines ?? []).map((line, idx) => (
+                      <tr key={idx} className="border-t">
+                        <td className="px-2 py-1">{line.reference}</td>
+                        <td className="px-2 py-1">{line.side}</td>
+                        <td className="px-2 py-1">{line.date && new Date(line.date).toLocaleDateString('en-GB')}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.netAmount ?? 0)}</td>
+                        <td className="px-2 py-1 text-right">{formatCurrency(line.vatAmount ?? 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'validation' && (
+            <div className="mt-4">
+              {/* Reuse the existing validation banner + details for this tab as the main content */}
+              {blocking.length > 0 || hasSys001 || issues.length > 0 ? (
+                <div className="space-y-3">
+                  {/* existing banners already rendered above; just show a short reminder here */}
+                  <p className="text-sm text-gray-600">
+                    Validation issues for this VAT period are shown above. Resolve all <span className="font-medium">Blocking</span> items before locking or submitting.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg border border-green-200 p-4 text-sm text-green-800">
+                  <p className="font-medium">No validation issues for this period.</p>
+                </div>
               )}
             </div>
-            {/* Footer bar: Amount Due to FTA / Refund from FTA + filing deadline */}
-            <div className={`border-t border-gray-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 ${(v.box13a ?? 0) > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-              <div>
-                <p className="text-sm font-medium text-gray-700">{(v.box13a ?? 0) > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
-                <p className={`text-2xl font-bold mt-0.5 ${(v.box13a ?? 0) > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                  {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? v.Box13b ?? 0)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-medium text-gray-700">Filing deadline</p>
-                <p className="text-lg font-semibold text-amber-900 mt-0.5">
-                  {v.dueDate ? new Date(v.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                </p>
-                {daysUntilDue != null && daysUntilDue <= 0 && <p className="text-xs font-medium text-red-600">Overdue</p>}
-                {daysUntilDue != null && daysUntilDue > 0 && <p className="text-xs text-gray-500">{daysUntilDue} days left</p>}
-              </div>
-            </div>
-          </div>
+          )}
         </>
       )}
     </div>
   )
 }
 
-// Tabs (transactions, sales, purchases, expenses, summary, creditnotes, validation, history) removed – simple 3-row summary only.
 export default VatReturnPage
