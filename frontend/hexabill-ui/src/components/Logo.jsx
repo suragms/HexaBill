@@ -83,6 +83,7 @@ const Logo = ({ className = '', showText = true, size = 'default' }) => {
       <div className={`${sizeClasses[size]} ${!logoSrc && (companyName === 'HexaBill' || !companyName) ? '' : 'bg-primary-600 rounded-lg'} flex items-center justify-center overflow-hidden flex-shrink-0`}>
 {logoSrc && !logoError ? (
           <img
+            key={logoKey}
             src={logoSrc}
             alt={companyName}
             className="w-full h-full object-contain"

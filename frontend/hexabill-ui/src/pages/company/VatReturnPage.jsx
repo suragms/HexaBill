@@ -325,10 +325,10 @@ const VatReturnPage = () => {
   const salesLinesForTotal = (outputLines || []).filter(line => ((line.vatScenario ?? line.VatScenario) || '').toLowerCase() !== 'exempt')
   const totalSalesNet = salesLinesForTotal.reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
   const totalSalesVat = salesLinesForTotal.reduce((s, l) => s + (Number(l.vatAmount ?? l.VatAmount) || 0), 0)
-  const purchaseLines = (inputLines || []).filter(l => (l.type ?? l.Type) === 'Purchase')
+  const purchaseLines = (inputLines || []).filter(l => ((l.type ?? l.Type) ?? '').toString().toLowerCase() === 'purchase')
   const totalPurchasesNet = purchaseLines.reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
   const totalPurchasesVat = purchaseLines.reduce((s, l) => s + (Number(l.claimableVat ?? l.ClaimableVat) || 0), 0)
-  const expenseLines = (inputLines || []).filter(l => (l.type ?? l.Type) === 'Expense')
+  const expenseLines = (inputLines || []).filter(l => ((l.type ?? l.Type) ?? '').toString().toLowerCase() === 'expense')
   const totalExpensesNet = expenseLines.reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
   const totalExpensesVat = expenseLines.reduce((s, l) => s + (Number(l.claimableVat ?? l.ClaimableVat) || 0), 0)
   const totalCreditNotesNet = (creditNoteLines || []).reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
@@ -745,31 +745,58 @@ const VatReturnPage = () => {
             </div>
           )}
 
-          {/* Hint when Total Sales is 0 so user knows period may not cover their invoice dates */}
+          {/* Hint when Total Sales is 0: suggest the year that contains the out-of-period invoice dates */}
           {v && displayBox1a === 0 && displayBox1b === 0 && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               <p className="font-medium">Total Sales is 0.00 for this period ({fromDate} – {toDate}).</p>
-              <p className="mt-1 text-amber-700">VAT only includes invoices whose <strong>invoice date</strong> falls in this range. If your dashboard shows sales for other dates, pick a period that includes those dates (e.g. same custom range as on the dashboard, or Q1–Q4 for the year when you had sales).</p>
-              {issues.some(i => (i.message || '').toLowerCase().includes('outside')) && (
-                <p className="mt-2 text-amber-700">To include those invoices, choose a period that contains their dates (e.g. Q4 2025 or This Year).</p>
+              <p className="mt-1 text-amber-700">VAT only includes invoices whose <strong>invoice date</strong> falls in this range. If your dashboard shows sales for other dates, pick a period that includes those dates.</p>
+              {issues.some(i => (i.message || '').toLowerCase().includes('outside')) && (() => {
+                // Parse warning messages for "YYYY-MM-DD" to suggest the correct year (e.g. 2025-10-25 → 2025)
+                const dateMatch = issues.find(i => (i.message || '').match(/\d{4}-\d{2}-\d{2}/))
+                const suggestedYear = dateMatch ? parseInt((dateMatch.message || '').match(/(\d{4})-\d{2}-\d{2}/)?.[1] || '', 10) : null
+                const y = (Number.isInteger(suggestedYear) && suggestedYear >= 2020 && suggestedYear <= 2030) ? suggestedYear : (year || new Date().getFullYear())
+                return (
+                  <>
+                    <p className="mt-2 text-amber-700">To include those invoices, choose a period that contains their dates (e.g. This Year {y}).</p>
+                    <p className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const from = `${y}-01-01`
+                          const to = `${y}-12-31`
+                          setFromDate(from)
+                          setToDate(to)
+                          setYear(y)
+                          setSearchParams({ from, to })
+                          fetchVatReturn(from, to)
+                        }}
+                        className="text-amber-800 font-semibold underline hover:no-underline"
+                      >
+                        Suggest period: This Year ({y})
+                      </button>
+                    </p>
+                  </>
+                )
+              })()}
+              {!issues.some(i => (i.message || '').toLowerCase().includes('outside')) && (
+                <p className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const y = year || new Date().getFullYear()
+                      const from = `${y}-01-01`
+                      const to = `${y}-12-31`
+                      setFromDate(from)
+                      setToDate(to)
+                      setSearchParams({ from, to })
+                      fetchVatReturn(from, to)
+                    }}
+                    className="text-amber-800 font-semibold underline hover:no-underline"
+                  >
+                    Suggest period: This Year ({year || new Date().getFullYear()})
+                  </button>
+                </p>
               )}
-              <p className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const y = year || new Date().getFullYear()
-                    const from = `${y}-01-01`
-                    const to = `${y}-12-31`
-                    setFromDate(from)
-                    setToDate(to)
-                    setSearchParams({ from, to })
-                    fetchVatReturn(from, to)
-                  }}
-                  className="text-amber-800 font-semibold underline hover:no-underline"
-                >
-                  Suggest period: This Year ({year || new Date().getFullYear()})
-                </button>
-              </p>
             </div>
           )}
 
@@ -952,6 +979,9 @@ const VatReturnPage = () => {
           {activeTab === 'purchases' && (
             <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
               <h2 className="text-sm font-semibold text-gray-900">Purchases (Input VAT)</h2>
+              {purchaseLines.length === 0 && (
+                <p className="mt-2 text-xs text-gray-600">Only purchases in this period with <strong>Tax claimable</strong> and VAT &gt; 0 appear. Check that purchase dates fall in {fromDate} – {toDate} and that items are marked tax claimable on the Purchases page.</p>
+              )}
               <div className="overflow-x-auto mt-2">
                 <table className="min-w-full text-xs border border-gray-200 rounded-lg">
                   <thead>
@@ -964,9 +994,7 @@ const VatReturnPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {inputLines
-                      .filter(line => (line.type ?? line.Type) === 'Purchase')
-                      .map((line, idx) => (
+                    {purchaseLines.map((line, idx) => (
                         <tr key={idx} className="border-t">
                           <td className="px-2 py-1">{line.reference ?? line.Reference ?? ''}</td>
                           <td className="px-2 py-1">{line.supplierName ?? line.SupplierName ?? ''}</td>
