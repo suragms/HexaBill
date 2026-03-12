@@ -495,6 +495,14 @@ const VatReturnPage = () => {
             </div>
           )}
 
+          {/* Hint when Total Sales is 0 so user knows period may not cover their invoice dates */}
+          {v && (v.box1a ?? 0) === 0 && (v.box1b ?? 0) === 0 && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <p className="font-medium">Total Sales is 0.00 for this period ({fromDate} – {toDate}).</p>
+              <p className="mt-1 text-amber-700">VAT only includes invoices whose <strong>invoice date</strong> falls in this range. If your dashboard shows sales for other dates, pick a period that includes those dates (e.g. same custom range as on the dashboard, or Q1–Q4 for the year when you had sales).</p>
+            </div>
+          )}
+
           {/* Simple 3-row VAT summary (HydroBooks-style) – printable */}
           <div className="vat-return-print-area bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="p-4">
@@ -528,7 +536,7 @@ const VatReturnPage = () => {
                       <td className="px-3 py-2 font-medium">Net VAT to Pay / Refundable</td>
                       <td className="px-3 py-2 text-right font-medium" colSpan="2">
                         <span className={(v.box13a ?? 0) > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
-                          {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? 0)}
+                          {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? v.Box13b ?? 0)}
                           {(v.box13a ?? 0) > 0 ? ' (Payable)' : ' (Refundable)'}
                         </span>
                       </td>
@@ -545,7 +553,7 @@ const VatReturnPage = () => {
               <div>
                 <p className="text-sm font-medium text-gray-700">{(v.box13a ?? 0) > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
                 <p className={`text-2xl font-bold mt-0.5 ${(v.box13a ?? 0) > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                  {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? 0)}
+                  {(v.box13a ?? 0) > 0 ? formatCurrency(v.box13a) : formatCurrency(v.box13b ?? v.Box13b ?? 0)}
                 </p>
               </div>
               <div className="text-right">

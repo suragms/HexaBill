@@ -82,8 +82,9 @@ namespace HexaBill.Api.Modules.Reports
 
         private async Task<VatReturn201Dto> GetVatReturn201InternalAsync(int tenantId, DateTime fromDate, DateTime toDate)
         {
+            // Controller passes UTC range: fromDate = period start, toDate = exclusive end (start of next day in tenant TZ).
             var from = fromDate.ToUtcKind();
-            var to = toDate.Date.AddDays(1).ToUtcKind();
+            var to = toDate.ToUtcKind();
             var outputLines = new List<VatReturnOutputLineDto>();
             var inputLines = new List<VatReturnInputLineDto>();
             var creditNoteLines = new List<VatReturnCreditNoteLineDto>();
@@ -259,16 +260,18 @@ namespace HexaBill.Api.Modules.Reports
             var box13a = Math.Max(0, box1b - box12);
             var box13b = Math.Max(0, box12 - box1b);
 
-            var (periodLabel, dueDate) = GetPeriodLabelAndDue(fromDate, toDate);
+            // to is exclusive end; last day of period for display is to - 1 day
+            var periodEndInclusive = to.AddDays(-1).Date;
+            var (periodLabel, dueDate) = GetPeriodLabelAndDue(fromDate, periodEndInclusive);
             int txCount = salesInPeriod.Count + returnsInPeriod.Count + purchasesInPeriod.Count + expensesInPeriod.Count;
             if (txCount == 0)
-                _logger.LogInformation("VAT return: no transactions for tenant {TenantId}, period {From} to {To}. Sales={Sales}, Purchases={Purchases}, Expenses={Expenses}.", tenantId, fromDate.ToString("yyyy-MM-dd"), toDate.ToString("yyyy-MM-dd"), salesInPeriod.Count, purchasesInPeriod.Count, expensesInPeriod.Count);
+                _logger.LogInformation("VAT return: no transactions for tenant {TenantId}, period {From} to {To}. Sales={Sales}, Purchases={Purchases}, Expenses={Expenses}.", tenantId, fromDate.ToString("yyyy-MM-dd"), periodEndInclusive.ToString("yyyy-MM-dd"), salesInPeriod.Count, purchasesInPeriod.Count, expensesInPeriod.Count);
 
             return new VatReturn201Dto
             {
                 PeriodLabel = periodLabel,
                 PeriodStart = fromDate,
-                PeriodEnd = toDate,
+                PeriodEnd = periodEndInclusive,
                 DueDate = dueDate,
                 Status = "Draft",
                 Box1a = VatCalculator.Round(box1a),

@@ -62,16 +62,21 @@ namespace HexaBill.Api.Modules.Reports
                 DateTime toDate;
                 if (from.HasValue && to.HasValue)
                 {
-                    fromDate = from.Value.ToUtcKind();
-                    toDate = to.Value.ToUtcKind();
+                    // Align with dashboard: treat from/to as date-only in tenant timezone, then convert to UTC
+                    var fromLocal = new DateTime(from.Value.Year, from.Value.Month, from.Value.Day, 0, 0, 0, DateTimeKind.Unspecified);
+                    var toEndLocal = new DateTime(to.Value.Year, to.Value.Month, to.Value.Day, 0, 0, 0, DateTimeKind.Unspecified).AddDays(1);
+                    fromDate = _timeZoneService.ConvertToUtc(fromLocal).ToUtcKind();
+                    toDate = _timeZoneService.ConvertToUtc(toEndLocal).ToUtcKind();
                     if (fromDate > toDate)
                         return BadRequest(new ApiResponse<object> { Success = false, Message = "From date must be before to date." });
                 }
                 else if (quarter.HasValue && year.HasValue && quarter >= 1 && quarter <= 4)
                 {
                     var (f, t) = VatReturnReportService.QuarterToDateRange(quarter.Value, year.Value);
-                    fromDate = f;
-                    toDate = t;
+                    var fromLocal = new DateTime(f.Year, f.Month, f.Day, 0, 0, 0, DateTimeKind.Unspecified);
+                    var toEndLocal = new DateTime(t.Year, t.Month, t.Day, 0, 0, 0, DateTimeKind.Unspecified).AddDays(1);
+                    fromDate = _timeZoneService.ConvertToUtc(fromLocal).ToUtcKind();
+                    toDate = _timeZoneService.ConvertToUtc(toEndLocal).ToUtcKind();
                 }
                 else
                 {
@@ -149,14 +154,17 @@ namespace HexaBill.Api.Modules.Reports
                 if (tenantId <= 0 && !IsSystemAdmin) return Forbid();
                 if (request?.From == null || request.To == null)
                     return BadRequest(new ApiResponse<VatReturn201Dto> { Success = false, Message = "From and To dates are required." });
-                var from = request.From.Value.ToUtcKind();
-                var to = request.To.Value.ToUtcKind();
-                if (from > to)
+                var fromLocal = new DateTime(request.From.Value.Year, request.From.Value.Month, request.From.Value.Day, 0, 0, 0, DateTimeKind.Unspecified);
+                var toEndLocal = new DateTime(request.To.Value.Year, request.To.Value.Month, request.To.Value.Day, 0, 0, 0, DateTimeKind.Unspecified).AddDays(1);
+                var from = _timeZoneService.ConvertToUtc(fromLocal).ToUtcKind();
+                var to = _timeZoneService.ConvertToUtc(toEndLocal).ToUtcKind();
+                if (from >= to)
                     return BadRequest(new ApiResponse<VatReturn201Dto> { Success = false, Message = "From must be before To." });
                 var dto = await _vatReturnReportService.GetVatReturn201Async(tenantId, from, to);
-                var (periodLabel, dueDate) = GetPeriodLabelAndDue(from, to);
+                var periodEndInclusive = to.AddDays(-1).Date;
+                var (periodLabel, dueDate) = GetPeriodLabelAndDue(from, periodEndInclusive);
                 var fromDateOnly = from.Date;
-                var toDateOnly = to.Date;
+                var toDateOnly = periodEndInclusive;
                 var period = await _context.VatReturnPeriods
                     .FirstOrDefaultAsync(p => p.TenantId == tenantId && p.PeriodStart == fromDateOnly && p.PeriodEnd == toDateOnly);
                 if (period == null)
