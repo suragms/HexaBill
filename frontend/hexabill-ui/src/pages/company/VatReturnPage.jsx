@@ -119,6 +119,7 @@ const VatReturnPage = () => {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null) // null | 'access' | { message: string }
   const [vatReturn, setVatReturn] = useState(null)
+  const [ledgerFallback, setLedgerFallback] = useState(null) // { totalSalesNet, totalSalesVat } when VAT return has 0 sales but ledger has data
   const [validationExpanded, setValidationExpanded] = useState(false)
 
   const isValidDate = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)
@@ -173,11 +174,30 @@ const VatReturnPage = () => {
     try {
       const params = { from: fromFinal, to: toFinal }
       const res = await reportsAPI.getVatReturn(params)
-      if (res?.success && res?.data != null) {
-        setVatReturn(res.data)
+      // CRITICAL: Unwrap inner DTO (API returns { success, data: dto } or nested { data: { data: dto } })
+      const dto = res?.data?.data ?? res?.data ?? null
+      if (res?.success && dto != null) {
+        setVatReturn(dto)
         setLoadError(null)
+        // When VAT return has 0 sales but we have a period, fetch Sales Ledger for same period so Overview shows real totals
+        const hasNoSales = !(dto.outputLines?.length || dto.OutputLines?.length) && (Number(dto.box1a ?? dto.Box1a ?? 0) === 0)
+        if (hasNoSales && fromFinal && toFinal) {
+          try {
+            const ledgerRes = await reportsAPI.getComprehensiveSalesLedger({ fromDate: fromFinal, toDate: toFinal })
+            const summary = ledgerRes?.data?.summary ?? ledgerRes?.data?.Summary ?? ledgerRes?.summary ?? null
+            if (summary) {
+              const totalSales = Number(summary.totalSales ?? summary.TotalSales ?? 0)
+              const totalSalesVat = Number(summary.totalSalesVat ?? summary.TotalSalesVat ?? 0)
+              if (totalSales > 0 || totalSalesVat > 0) {
+                const net = totalSales - totalSalesVat
+                setLedgerFallback({ totalSalesNet: net >= 0 ? net : totalSales, totalSalesVat: totalSalesVat })
+              } else setLedgerFallback(null)
+            } else setLedgerFallback(null)
+          } catch (_) { setLedgerFallback(null) }
+        } else setLedgerFallback(null)
       } else {
-        setVatReturn(res?.data ?? null)
+        setVatReturn(dto ?? null)
+        setLedgerFallback(null)
         if (!res?.success && res?.message) {
           setLoadError({ message: res.message, status: res?.status ?? null, url: null })
         } else {
@@ -203,6 +223,7 @@ const VatReturnPage = () => {
         if (!err?._handledByInterceptor) toast.error(msg)
       }
       setVatReturn(null)
+      setLedgerFallback(null)
     } finally {
       setLoading(false)
     }
@@ -311,6 +332,16 @@ const VatReturnPage = () => {
   const totalExpensesVat = expenseLines.reduce((s, l) => s + (Number(l.claimableVat ?? l.ClaimableVat) || 0), 0)
   const totalCreditNotesNet = (creditNoteLines || []).reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
   const totalCreditNotesVat = (creditNoteLines || []).reduce((s, l) => s + (Number(l.vatAmount ?? l.VatAmount) || 0), 0)
+  // REAL CALCULATION FLOW: Use (1) line totals when API boxes are 0 but we have lines, (2) Sales Ledger fallback when VAT return has 0 sales but ledger has data.
+  const displayBox1a = (box1a === 0 && salesLinesForTotal.length > 0)
+    ? totalSalesNet
+    : (box1a === 0 && ledgerFallback) ? (ledgerFallback.totalSalesNet ?? 0) : box1a
+  const displayBox1b = (box1b === 0 && salesLinesForTotal.length > 0)
+    ? totalSalesVat
+    : (box1b === 0 && ledgerFallback) ? (ledgerFallback.totalSalesVat ?? 0) : box1b
+  const displayBox12 = (box12 === 0 && (purchaseLines.length > 0 || expenseLines.length > 0)) ? (totalPurchasesVat + totalExpensesVat) : box12
+  const displayBox13a = Math.max(0, displayBox1b - displayBox12)
+  const displayBox13b = Math.max(0, displayBox12 - displayBox1b)
   const hasFta201 = v && (typeof box1a === 'number' || typeof v.box1a === 'number')
   const issues = (v?.validationIssues ?? v?.ValidationIssues ?? []).filter(Boolean)
   const blocking = issues.filter(i => (i.severity || '').toString() === 'Blocking')
@@ -522,8 +553,10 @@ const VatReturnPage = () => {
                 if (!fromDate || !toDate) { toast.error('Set From/To dates then recalculate'); return }
                 try {
                   const res = await reportsAPI.calculateVatReturn(fromDate, toDate)
-                  if (res?.success && res?.data) {
-                    setVatReturn(res.data)
+                  const dto = res?.data?.data ?? res?.data
+                  if (res?.success && dto) {
+                    setVatReturn(dto)
+                    setLedgerFallback(null)
                     setSearchParams({ from: fromDate, to: toDate })
                     toast.success('Recalculated')
                   }
@@ -691,7 +724,7 @@ const VatReturnPage = () => {
           )}
 
           {/* Hint when Total Sales is 0 so user knows period may not cover their invoice dates */}
-          {v && box1a === 0 && box1b === 0 && (
+          {v && displayBox1a === 0 && displayBox1b === 0 && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               <p className="font-medium">Total Sales is 0.00 for this period ({fromDate} – {toDate}).</p>
               <p className="mt-1 text-amber-700">VAT only includes invoices whose <strong>invoice date</strong> falls in this range. If your dashboard shows sales for other dates, pick a period that includes those dates (e.g. same custom range as on the dashboard, or Q1–Q4 for the year when you had sales).</p>
@@ -744,22 +777,22 @@ const VatReturnPage = () => {
                       <tr>
                         <td className="px-3 py-2 font-medium">1</td>
                         <td className="px-3 py-2 text-gray-700">Total Sales</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(box1a)}</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(box1b)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox1a)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox1b)}</td>
                       </tr>
                       <tr>
                         <td className="px-3 py-2 font-medium">2</td>
                         <td className="px-3 py-2 text-gray-700">Total Purchase and Expense (net)</td>
                         <td className="px-3 py-2 text-right font-medium">{formatCurrency(totalInputNet)}</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(box12)}</td>
+                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox12)}</td>
                       </tr>
-                      <tr className={box13a > 0 ? 'bg-red-50' : 'bg-green-50'}>
+                      <tr className={displayBox13a > 0 ? 'bg-red-50' : 'bg-green-50'}>
                         <td className="px-3 py-2 font-medium">3</td>
                         <td className="px-3 py-2 font-medium">Net VAT to Pay / Refundable</td>
                         <td className="px-3 py-2 text-right font-medium" colSpan="2">
-                          <span className={box13a > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
-                            {box13a > 0 ? formatCurrency(box13a) : formatCurrency(box13b)}
-                            {box13a > 0 ? ' (Payable)' : ' (Refundable)'}
+                          <span className={displayBox13a > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
+                            {displayBox13a > 0 ? formatCurrency(displayBox13a) : formatCurrency(displayBox13b)}
+                            {displayBox13a > 0 ? ' (Payable)' : ' (Refundable)'}
                           </span>
                         </td>
                       </tr>
@@ -771,11 +804,11 @@ const VatReturnPage = () => {
                 )}
               </div>
               {/* Footer bar: Amount Due to FTA / Refund from FTA + filing deadline */}
-              <div className={`border-t border-gray-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 ${box13a > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+              <div className={`border-t border-gray-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 ${displayBox13a > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
                 <div>
-                  <p className="text-sm font-medium text-gray-700">{box13a > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${box13a > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                    {box13a > 0 ? formatCurrency(box13a) : formatCurrency(box13b)}
+                  <p className="text-sm font-medium text-gray-700">{displayBox13a > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
+                  <p className={`text-2xl font-bold mt-0.5 ${displayBox13a > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                    {displayBox13a > 0 ? formatCurrency(displayBox13a) : formatCurrency(displayBox13b)}
                   </p>
                 </div>
                 <div className="text-right">
