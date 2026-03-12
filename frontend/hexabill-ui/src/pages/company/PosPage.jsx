@@ -106,6 +106,15 @@ const PosPage = () => {
   const productSearchRefs = useRef({})
   const lastAddedRowIndexRef = useRef(null)
 
+  // Auto-check Free sample when all cart items with qty>0 have unitPrice 0
+  useEffect(() => {
+    const itemsWithQty = cart.filter(item => item.productId && (Number(item.qty) || 0) > 0)
+    const hasPricedItem = itemsWithQty.some(item => (Number(item.unitPrice) || 0) > 0)
+    const allZeroPrice = itemsWithQty.length > 0 && itemsWithQty.every(item => (Number(item.unitPrice) || 0) === 0)
+    if (hasPricedItem) setIsZeroInvoice(false)
+    else if (allZeroPrice) setIsZeroInvoice(true)
+  }, [cart])
+
   // Define loadProducts before useEffect
   const loadProducts = useCallback(async () => {
     try {
@@ -1024,21 +1033,21 @@ const PosPage = () => {
       return
     }
 
-    // Filter out empty rows
-    const validCart = cart.filter(item => item.productId && item.qty > 0 && item.unitPrice > 0)
+    // Filter out empty rows. Allow unitPrice 0 when Free sample / Zero invoice is checked.
+    const validCart = cart.filter(item => item.productId && item.qty > 0 && (isZeroInvoice ? true : (item.unitPrice > 0)))
     if (validCart.length === 0) {
-      toast.error('Please add at least one valid product')
+      toast.error(isZeroInvoice ? 'Please add at least one product (qty > 0) for free sample.' : 'Please add at least one valid product with price > 0, or check "Free sample / Zero invoice" for zero-cost items.')
       return
     }
 
-    // Validate quantities and prices
+    // Validate quantities and prices (allow 0 price when Free sample)
     for (const item of validCart) {
       if (item.qty <= 0 || item.qty > 100000) {
         toast.error(`Invalid quantity for ${item.productName || 'product'}. Must be between 1 and 100,000.`)
         return
       }
-      if (item.unitPrice <= 0 || item.unitPrice > 1000000) {
-        toast.error(`Invalid price for ${item.productName || 'product'}. Must be between 0.01 and 1,000,000.`)
+      if (!isZeroInvoice && (item.unitPrice <= 0 || item.unitPrice > 1000000)) {
+        toast.error(`Invalid price for ${item.productName || 'product'}. Must be between 0.01 and 1,000,000, or check "Free sample / Zero invoice" for zero-cost.`)
         return
       }
     }
@@ -2911,13 +2920,14 @@ const PosPage = () => {
                       const totals = calculateTotals()
                       const saleData = {
                         customerId: selectedCustomer?.id || null,
-                        items: cart.filter(item => item.productId && item.qty > 0 && item.unitPrice > 0).map(item => ({
+                        items: cart.filter(item => item.productId && item.qty > 0 && (isZeroInvoice || item.unitPrice > 0)).map(item => ({
                           productId: item.productId,
                           unitType: item.unitType,
                           qty: Number(item.qty),
-                          unitPrice: Number(item.unitPrice)
+                          unitPrice: isZeroInvoice ? 0 : Number(item.unitPrice)
                         })),
-                        discount: discount || 0,
+                        discount: isZeroInvoice ? 0 : (discount || 0),
+                        isZeroInvoice: !!isZeroInvoice,
                         payments: (paymentMethod !== 'Pending') ? [{
                           method: paymentMethod,
                           amount: (paymentAmount && !isNaN(parseFloat(paymentAmount)))
