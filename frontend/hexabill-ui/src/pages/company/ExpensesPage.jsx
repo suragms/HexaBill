@@ -621,7 +621,8 @@ const ExpensesPage = () => {
       const response = await expensesAPI.approveExpense(expenseId)
       if (response?.success) {
         toast.success('Expense approved successfully!')
-        fetchExpenses()
+        await fetchExpenses()
+        window.dispatchEvent(new CustomEvent('dataUpdated'))
       } else {
         toast.error(response?.message || 'Failed to approve expense')
       }
@@ -1211,6 +1212,7 @@ const ExpensesPage = () => {
                             toast.success(`Applied 5% VAT to ${res.data.updated} expense(s)`)
                             setSelectedExpenseIds([])
                             await fetchExpenses()
+                            window.dispatchEvent(new CustomEvent('dataUpdated'))
                           } else toast.error(res?.message || 'Update failed')
                         } catch (err) {
                           toast.error(err?.response?.data?.message || 'Update failed')

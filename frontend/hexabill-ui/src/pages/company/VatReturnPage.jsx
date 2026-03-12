@@ -483,7 +483,7 @@ const VatReturnPage = () => {
           </select>
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Use Q1–Q4 or This Year for FTA returns. Custom range must be a full quarter (e.g. 2025-10-01 to 2025-12-31 for Q4) or full year (e.g. 2025-01-01 to 2025-12-31).
+          Use Q1–Q4 or <strong>This Year</strong> for FTA returns. If all values show 0.00, try <strong>This Year</strong> or the quarter when you had sales/purchases. Custom range must be a full quarter or full year (e.g. 2025-01-01 to 2025-12-31).
         </p>
         {loadError && (
           <p className="mt-3 text-sm text-red-600">
@@ -734,7 +734,14 @@ const VatReturnPage = () => {
           {v && !outputLines.length && !inputLines.length && (
             <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
               <p className="font-medium">No transactions in this period.</p>
-              <p className="mt-1 text-blue-700">Showing: {fromDate} – {toDate}. Try another date range (e.g. Last quarter) or check that invoices, purchases, and expenses exist for the selected period. FTA boxes below show zeros.</p>
+              <p className="mt-1 text-blue-700">Showing: {fromDate} – {toDate}. Try <strong>This Year</strong> (button above) or the quarter when you had sales. FTA boxes below show zeros until the period includes your invoice/purchase/expense dates.</p>
+              <button
+                type="button"
+                onClick={() => handlePeriodPreset('thisYear')}
+                className="mt-2 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
+              >
+                Load This Year ({year || new Date().getFullYear()})
+              </button>
             </div>
           )}
 
@@ -743,6 +750,26 @@ const VatReturnPage = () => {
             <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               <p className="font-medium">Total Sales is 0.00 for this period ({fromDate} – {toDate}).</p>
               <p className="mt-1 text-amber-700">VAT only includes invoices whose <strong>invoice date</strong> falls in this range. If your dashboard shows sales for other dates, pick a period that includes those dates (e.g. same custom range as on the dashboard, or Q1–Q4 for the year when you had sales).</p>
+              {issues.some(i => (i.message || '').toLowerCase().includes('outside')) && (
+                <p className="mt-2 text-amber-700">To include those invoices, choose a period that contains their dates (e.g. Q4 2025 or This Year).</p>
+              )}
+              <p className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const y = year || new Date().getFullYear()
+                    const from = `${y}-01-01`
+                    const to = `${y}-12-31`
+                    setFromDate(from)
+                    setToDate(to)
+                    setSearchParams({ from, to })
+                    fetchVatReturn(from, to)
+                  }}
+                  className="text-amber-800 font-semibold underline hover:no-underline"
+                >
+                  Suggest period: This Year ({year || new Date().getFullYear()})
+                </button>
+              </p>
             </div>
           )}
 

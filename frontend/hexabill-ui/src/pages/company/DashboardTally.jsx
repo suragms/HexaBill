@@ -710,13 +710,14 @@ const DashboardTally = () => {
                                                 <span className="font-medium text-amber-600">{formatCurrency(branch.unpaidAmount ?? 0)}</span>
                                             </div>
                                             <div>
-                                                <span className="text-neutral-500 block">Expenses</span>
+                                                <span className="text-neutral-500 block">Expenses (this branch)</span>
                                                 <span className="font-medium text-red-600">{formatCurrency(branch.expenses)}</span>
                                             </div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
+                            <p className="mt-2 text-xs text-neutral-500">Branch expenses only. Total expenses at the top include company-level (unassigned) expenses.</p>
                         </div>
                     )}
 

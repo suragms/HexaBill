@@ -140,14 +140,27 @@ export const BrandingProvider = ({ children }) => {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [loadBranding])
 
-  // When Settings (or any component) uploads a logo, refresh header logo immediately
+  // When Settings (or any component) uploads a logo, set logo immediately from event then refetch
   useEffect(() => {
-    const handleLogoUpdated = () => {
+    const handleLogoUpdated = (event) => {
+      const logoUrl = event?.detail?.logoUrl
+      if (typeof logoUrl === 'string' && logoUrl.trim()) {
+        const apiBase = getApiBaseUrlNoSuffix()
+        const fullLogoUrl = logoUrl.startsWith('http')
+          ? logoUrl
+          : logoUrl.startsWith('/')
+            ? `${apiBase}${logoUrl}`
+            : `${apiBase}/uploads/${logoUrl}`
+        const logoDisplay = `${fullLogoUrl}${fullLogoUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
+        setBranding(prev => ({ ...prev, companyLogo: logoDisplay, loading: false }))
+        if (!fullLogoUrl.includes('/api/storage/') && !fullLogoUrl.includes('storage/tenants/'))
+          updateFavicon(logoDisplay)
+      }
       loadBranding()
     }
     window.addEventListener('logo-updated', handleLogoUpdated)
     return () => window.removeEventListener('logo-updated', handleLogoUpdated)
-  }, [loadBranding])
+  }, [loadBranding, updateFavicon])
 
   return (
     <BrandingContext.Provider value={{ ...branding, refresh: loadBranding }}>

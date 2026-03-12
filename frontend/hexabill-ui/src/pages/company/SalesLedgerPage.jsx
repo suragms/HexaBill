@@ -542,7 +542,7 @@ const SalesLedgerPage = () => {
           paidAmt.toFixed(2),
           pending.toFixed(2),
           entry.status || 'Unpaid',
-          (entry.customerBalance || 0).toFixed(2)
+          (entry.type === 'Sale' ? (entry.realPending ?? 0) : (entry.customerBalance ?? 0)).toFixed(2)
         ]
       })
       const csvContent = [headers.join(','), ...rows.map(row => row.map(cell => `"${cell}"`).join(','))].join('\n')
@@ -974,7 +974,8 @@ const SalesLedgerPage = () => {
                                 ? 'bg-red-100 text-red-800 border-red-300'
                                 : 'bg-gray-100 text-gray-800 border-gray-300'
 
-                      const customerBalance = entry.customerBalance || 0
+                      // For Sale rows show remaining balance for this invoice (0 when Paid); for Payment/Return show running balance
+                      const balanceDisplay = entry.type === 'Sale' ? (entry.realPending ?? 0) : (entry.customerBalance ?? 0)
 
                       rows.push(
                         <tr key={idx} className={rowBgColor}>
@@ -1327,11 +1328,11 @@ const SalesLedgerPage = () => {
                       )}
                       <div>
                         <div className="text-xs text-gray-500 uppercase">Balance</div>
-                        <div className={`font-bold ${entry.customerBalance < 0 ? 'text-green-600' :
-                          entry.customerBalance > 0 ? 'text-red-600' :
+                        <div className={`font-bold ${(entry.type === 'Sale' ? (entry.realPending ?? 0) : (entry.customerBalance ?? 0)) < 0 ? 'text-green-600' :
+                          (entry.type === 'Sale' ? (entry.realPending ?? 0) : (entry.customerBalance ?? 0)) > 0 ? 'text-red-600' :
                             'text-gray-900'
                           }`}>
-                          {formatBalance(entry.customerBalance || 0)}
+                          {formatBalance(entry.type === 'Sale' ? (entry.realPending ?? 0) : (entry.customerBalance ?? 0))}
                         </div>
                       </div>
                     </div>

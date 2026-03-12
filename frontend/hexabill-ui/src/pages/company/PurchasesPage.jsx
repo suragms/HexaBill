@@ -889,19 +889,23 @@ const PurchasesPage = () => {
                         <tfoot className="bg-primary-100 font-bold">
                           <tr>
                             <td colSpan="2" className="px-3 py-2 border-r border-primary-200">TOTAL</td>
-                            <td className="px-3 py-2 text-right border-r border-primary-200">
+                            <td className="px-3 py-2 text-right border-r border-primary-200" title="Total amount (AED)">
                               <span className="text-green-700">AED {analytics.totalAmount?.toFixed(2) || '0.00'}</span>
+                              <span className="block text-xs font-normal text-primary-600">Total (AED)</span>
                             </td>
-                            <td className="px-3 py-2 text-center border-r border-primary-200">
+                            <td className="px-3 py-2 text-center border-r border-primary-200" title="Number of purchases">
                               <span className="text-blue-700">{analytics.totalCount || 0}</span>
+                              <span className="block text-xs font-normal text-primary-600">Purchases</span>
                             </td>
-                            <td className="px-3 py-2 text-center border-r border-primary-200">
+                            <td className="px-3 py-2 text-center border-r border-primary-200" title="Total line items">
                               <span className="text-primary-700">{analytics.totalItems || 0}</span>
+                              <span className="block text-xs font-normal text-primary-600">Items</span>
                             </td>
-                            <td className="px-3 py-2 text-right">
+                            <td className="px-3 py-2 text-right" title="Average per purchase (AED)">
                               <span className="text-orange-600">
                                 AED {analytics.totalCount > 0 ? (analytics.totalAmount / analytics.totalCount).toFixed(2) : '0.00'}
                               </span>
+                              <span className="block text-xs font-normal text-primary-600">Avg (AED)</span>
                             </td>
                           </tr>
                         </tfoot>
