@@ -18,13 +18,21 @@ import toast from 'react-hot-toast'
 import { reportsAPI } from '../../services'
 import { LoadingCard } from '../../components/Loading'
 
+/** Format date as YYYY-MM-DD using local date (avoid toISOString() which shifts day in some timezones). */
+function toLocalDateStr(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function quarterToRange(quarter, year) {
   const startMonth = (quarter - 1) * 3
   const from = new Date(year, startMonth, 1)
   const to = new Date(year, startMonth + 3, 0)
   return {
-    from: from.toISOString().split('T')[0],
-    to: to.toISOString().split('T')[0]
+    from: toLocalDateStr(from),
+    to: toLocalDateStr(to)
   }
 }
 
@@ -84,8 +92,8 @@ function snapToSupportedVatPeriod(fromStr, toStr) {
   const snappedFrom = new Date(y, startMonth, 1)
   const snappedTo = new Date(y, startMonth + 3, 0)
   return {
-    from: snappedFrom.toISOString().split('T')[0],
-    to: snappedTo.toISOString().split('T')[0]
+    from: toLocalDateStr(snappedFrom),
+    to: toLocalDateStr(snappedTo)
   }
 }
 
