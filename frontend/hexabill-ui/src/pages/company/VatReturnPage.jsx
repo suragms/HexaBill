@@ -28,6 +28,29 @@ function quarterToRange(quarter, year) {
   }
 }
 
+/** Mirrors backend: only full quarter (Q1–Q4) or full calendar year is valid. */
+function isSupportedVatPeriod(fromStr, toStr) {
+  if (!fromStr || !toStr || !/^\d{4}-\d{2}-\d{2}$/.test(fromStr) || !/^\d{4}-\d{2}-\d{2}$/.test(toStr)) return false
+  const from = new Date(fromStr)
+  const to = new Date(toStr)
+  if (isNaN(from.getTime()) || isNaN(to.getTime()) || from > to) return false
+  const y = from.getFullYear()
+  const mFrom = from.getMonth() + 1
+  const dFrom = from.getDate()
+  const mTo = to.getMonth() + 1
+  const dTo = to.getDate()
+  const lastDayOfTo = new Date(to.getFullYear(), to.getMonth() + 1, 0).getDate()
+  // Full calendar year
+  if (dFrom === 1 && mFrom === 1 && mTo === 12 && dTo === lastDayOfTo && from.getFullYear() === to.getFullYear()) return true
+  // Exact quarter: 3 months, same year, start on 1 Jan/Apr/Jul/Oct
+  if (from.getFullYear() !== to.getFullYear()) return false
+  if (dFrom !== 1 || dTo !== lastDayOfTo) return false
+  const monthsInclusive = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1
+  if (monthsInclusive !== 3) return false
+  const startMonth = from.getMonth() + 1
+  return [1, 4, 7, 10].includes(startMonth)
+}
+
 const VatReturnPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -75,6 +98,16 @@ const VatReturnPage = () => {
       setLoading(false)
       return
     }
+    if (!isSupportedVatPeriod(f, t)) {
+      setLoadError({
+        message: 'VAT period must be a full quarter (Q1–Q4) or a full calendar year (01-Jan to 31-Dec).',
+        status: 400,
+        url: null
+      })
+      setVatReturn(null)
+      setLoading(false)
+      return
+    }
     setLoadError(null)
     setLoading(true)
     try {
@@ -109,7 +142,22 @@ const VatReturnPage = () => {
     }
   }, [fromDate, toDate])
 
+  // On first load: if URL has an invalid VAT period, normalize to current quarter so we don't 400
   useEffect(() => {
+    const from = searchParams.get('from')
+    const to = searchParams.get('to')
+    if (from && to && !isSupportedVatPeriod(from, to)) {
+      const q = Math.ceil((now.getMonth() + 1) / 3)
+      const y = now.getFullYear()
+      const { from: f, to: t } = quarterToRange(q, y)
+      setFromDate(f)
+      setToDate(t)
+      setQuarter(q)
+      setYear(y)
+      setSearchParams({ from: f, to: t })
+      fetchVatReturn(f, t)
+      return
+    }
     if (fromDate && toDate) fetchVatReturn(fromDate, toDate)
   }, [])
 
@@ -180,6 +228,18 @@ const VatReturnPage = () => {
   const periodLabel = v?.periodLabel || (fromDate && toDate ? `${fromDate} to ${toDate}` : `Q${quarter} ${year}`)
   const daysUntilDue = v?.dueDate ? Math.ceil((new Date(v.dueDate) - new Date()) / 86400000) : null
 
+  // Which preset (if any) matches current from/to — for button highlight
+  const activePreset = (() => {
+    if (!fromDate || !toDate || !isSupportedVatPeriod(fromDate, toDate)) return null
+    const y = new Date(fromDate).getFullYear()
+    if (fromDate === `${y}-01-01` && toDate === `${y}-12-31`) return 'thisYear'
+    for (let q = 1; q <= 4; q++) {
+      const { from, to } = quarterToRange(q, y)
+      if (from === fromDate && to === toDate) return `Q${q}`
+    }
+    return null
+  })()
+
   return (
     <div className="w-full px-4 sm:px-6 py-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -212,7 +272,7 @@ const VatReturnPage = () => {
                 key={q}
                 type="button"
                 onClick={() => handlePeriodPreset(`Q${q}`)}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                className={`px-3 py-1.5 text-sm border rounded-md hover:bg-gray-50 ${activePreset === `Q${q}` ? 'border-primary-600 bg-primary-50 text-primary-800' : 'border-gray-300'}`}
               >
                 Q{q}
               </button>
@@ -220,7 +280,7 @@ const VatReturnPage = () => {
             <button
               type="button"
               onClick={() => handlePeriodPreset('thisYear')}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              className={`px-3 py-1.5 text-sm border rounded-md hover:bg-gray-50 ${activePreset === 'thisYear' ? 'border-primary-600 bg-primary-50 text-primary-800' : 'border-gray-300'}`}
             >
               This Year
             </button>
@@ -259,6 +319,9 @@ const VatReturnPage = () => {
             ))}
           </select>
         </div>
+        <p className="mt-2 text-xs text-gray-500">
+          Use Q1–Q4 or This Year for FTA returns. Custom range must be a full quarter (e.g. 2025-10-01 to 2025-12-31 for Q4) or full year (e.g. 2025-01-01 to 2025-12-31).
+        </p>
         {loadError && (
           <p className="mt-3 text-sm text-red-600">
             VAT data could not be loaded. Check your connection and period.
