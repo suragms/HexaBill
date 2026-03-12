@@ -88,9 +88,50 @@ namespace HexaBill.Api.Modules.Reports
             }
         }
 
+        /// <summary>Load sales in period using same raw SQL as Sales Ledger on PostgreSQL so VAT Return and Ledger always match.</summary>
+        private async Task<List<Sale>> GetSalesInPeriodForVatAsync(int tenantId, DateTime from, DateTime to)
+        {
+            if (!_context.Database.IsNpgsql())
+            {
+                return await _context.Sales
+                    .Include(s => s.Customer)
+                    .Where(s => (s.TenantId == tenantId || (s.TenantId == null && s.OwnerId == tenantId))
+                        && !s.IsDeleted && s.InvoiceDate >= from && s.InvoiceDate < to)
+                    .OrderBy(s => s.InvoiceDate)
+                    .ToListAsync();
+            }
+            var conn = _context.Database.GetDbConnection();
+            var wasOpen = conn.State == System.Data.ConnectionState.Open;
+            if (!wasOpen) await conn.OpenAsync();
+            try
+            {
+                // Exact same WHERE as ReportService.GetSalesLedgerSalesRawAsync so VAT Return shows same sales as Sales Ledger
+                const string sql = @"SELECT ""Id"" FROM ""Sales"" WHERE (""TenantId"" = @p0 OR (""TenantId"" IS NULL AND ""OwnerId"" = @p0)) AND ""IsDeleted"" = false AND ""InvoiceDate"" >= @p1 AND ""InvoiceDate"" < @p2 ORDER BY ""InvoiceDate"", ""Id""";
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                var p0 = cmd.CreateParameter(); p0.ParameterName = "p0"; p0.Value = tenantId; cmd.Parameters.Add(p0);
+                var p1 = cmd.CreateParameter(); p1.ParameterName = "p1"; p1.Value = from; cmd.Parameters.Add(p1);
+                var p2 = cmd.CreateParameter(); p2.ParameterName = "p2"; p2.Value = to; cmd.Parameters.Add(p2);
+                var ids = new List<int>();
+                using (var reader = await cmd.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                        ids.Add(reader.GetInt32(0));
+                }
+                if (ids.Count == 0) return new List<Sale>();
+                return await _context.Sales
+                    .Include(s => s.Customer)
+                    .Where(s => ids.Contains(s.Id))
+                    .OrderBy(s => s.InvoiceDate)
+                    .ThenBy(s => s.Id)
+                    .ToListAsync();
+            }
+            finally { if (!wasOpen) await conn.CloseAsync(); }
+        }
+
         private async Task<VatReturn201Dto> GetVatReturn201InternalAsync(int tenantId, DateTime fromDate, DateTime toDate, DateTime? fromCalendarInclusive, DateTime? toCalendarInclusive)
         {
-            // Use timezone-converted fromDate/toDate for DB filter so VAT data matches Sales Ledger (same UTC range).
+            // Use same range convention as Sales Ledger: from = start of day UTC, to = exclusive end (start of next day)
             var from = fromDate.ToUtcKind();
             var to = toDate.ToUtcKind();
             var outputLines = new List<VatReturnOutputLineDto>();
@@ -98,13 +139,8 @@ namespace HexaBill.Api.Modules.Reports
             var creditNoteLines = new List<VatReturnCreditNoteLineDto>();
             var reverseChargeLines = new List<VatReturnReverseChargeLineDto>();
 
-            // Tenant filter: match Sales Ledger raw SQL exactly - (TenantId = tenantId OR (TenantId IS NULL AND OwnerId = tenantId))
-            var salesInPeriod = await _context.Sales
-                .Include(s => s.Customer)
-                .Where(s => (s.TenantId == tenantId || (s.TenantId == null && s.OwnerId == tenantId))
-                    && !s.IsDeleted && s.InvoiceDate >= from && s.InvoiceDate < to)
-                .OrderBy(s => s.InvoiceDate)
-                .ToListAsync();
+            // CRITICAL: Use same query as Sales Ledger (raw SQL on PostgreSQL) so VAT Return and Ledger show identical sales
+            var salesInPeriod = await GetSalesInPeriodForVatAsync(tenantId, from, to);
             if (salesInPeriod.Count == 0)
             {
                 var anyForTenant = await _context.Sales.CountAsync(s => (s.TenantId == tenantId || s.OwnerId == tenantId) && !s.IsDeleted);

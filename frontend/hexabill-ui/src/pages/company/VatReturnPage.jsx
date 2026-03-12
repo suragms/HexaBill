@@ -299,6 +299,18 @@ const VatReturnPage = () => {
   const inputLines = v?.inputLines ?? v?.InputLines ?? []
   const creditNoteLines = v?.creditNoteLines ?? v?.CreditNoteLines ?? []
   const totalInputNet = (inputLines || []).reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
+  // Totals per tab (same filters as tables; coerce to number to avoid wrong/zero from strings)
+  const salesLinesForTotal = (outputLines || []).filter(line => ((line.vatScenario ?? line.VatScenario) || '').toLowerCase() !== 'exempt')
+  const totalSalesNet = salesLinesForTotal.reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
+  const totalSalesVat = salesLinesForTotal.reduce((s, l) => s + (Number(l.vatAmount ?? l.VatAmount) || 0), 0)
+  const purchaseLines = (inputLines || []).filter(l => (l.type ?? l.Type) === 'Purchase')
+  const totalPurchasesNet = purchaseLines.reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
+  const totalPurchasesVat = purchaseLines.reduce((s, l) => s + (Number(l.claimableVat ?? l.ClaimableVat) || 0), 0)
+  const expenseLines = (inputLines || []).filter(l => (l.type ?? l.Type) === 'Expense')
+  const totalExpensesNet = expenseLines.reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
+  const totalExpensesVat = expenseLines.reduce((s, l) => s + (Number(l.claimableVat ?? l.ClaimableVat) || 0), 0)
+  const totalCreditNotesNet = (creditNoteLines || []).reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
+  const totalCreditNotesVat = (creditNoteLines || []).reduce((s, l) => s + (Number(l.vatAmount ?? l.VatAmount) || 0), 0)
   const hasFta201 = v && (typeof box1a === 'number' || typeof v.box1a === 'number')
   const issues = (v?.validationIssues ?? v?.ValidationIssues ?? []).filter(Boolean)
   const blocking = issues.filter(i => (i.severity || '').toString() === 'Blocking')
@@ -846,6 +858,13 @@ const VatReturnPage = () => {
                         </tr>
                       ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
+                      <td className="px-2 py-2" colSpan={3}>Total</td>
+                      <td className="px-2 py-2 text-right">{formatCurrency(totalSalesNet)}</td>
+                      <td className="px-2 py-2 text-right">{formatCurrency(totalSalesVat)}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
@@ -878,6 +897,13 @@ const VatReturnPage = () => {
                         </tr>
                       ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
+                      <td className="px-2 py-2" colSpan={3}>Total</td>
+                      <td className="px-2 py-2 text-right">{formatCurrency(totalPurchasesNet)}</td>
+                      <td className="px-2 py-2 text-right">{formatCurrency(totalPurchasesVat)}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
@@ -910,6 +936,13 @@ const VatReturnPage = () => {
                         </tr>
                       ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
+                      <td className="px-2 py-2" colSpan={3}>Total</td>
+                      <td className="px-2 py-2 text-right">{formatCurrency(totalExpensesNet)}</td>
+                      <td className="px-2 py-2 text-right">{formatCurrency(totalExpensesVat)}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
@@ -940,6 +973,13 @@ const VatReturnPage = () => {
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
+                      <td className="px-2 py-2" colSpan={3}>Total</td>
+                      <td className="px-2 py-2 text-right">{formatCurrency(totalCreditNotesNet)}</td>
+                      <td className="px-2 py-2 text-right">{formatCurrency(totalCreditNotesVat)}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
