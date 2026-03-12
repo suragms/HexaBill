@@ -62,6 +62,8 @@ namespace HexaBill.Api.Models
         public decimal PartialCreditPct { get; set; } = 100m;
         /// <summary>Claimable VAT after apportionment and 50% entertainment cap.</summary>
         public decimal? ClaimableVat { get; set; }
+        /// <summary>True = amount entered was VAT-inclusive (gross); false = net; null = legacy/unknown.</summary>
+        public bool? VatInclusive { get; set; }
         
         // Navigation properties
         public virtual ExpenseCategory Category { get; set; } = null!;

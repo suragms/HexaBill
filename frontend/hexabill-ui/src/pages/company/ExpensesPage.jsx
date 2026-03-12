@@ -23,7 +23,7 @@ import {
   Download,
   Eye
 } from 'lucide-react'
-import { formatCurrency } from '../../utils/currency'
+import { formatCurrency, roundMoney } from '../../utils/currency'
 import toast from 'react-hot-toast'
 import { showToast } from '../../utils/toast'
 import { useAuth } from '../../hooks/useAuth'
@@ -52,10 +52,10 @@ function BulkVatForm ({ noVatExpenses, onApply, onCancel, submitting }) {
     let newVat = 0
     let newTotal = amount
     if (interpretation === 'add-on-top') {
-      newVat = Math.round(amount * vatRate * 100) / 100
+      newVat = roundMoney(amount * vatRate)
       newTotal = amount + newVat
     } else {
-      newNet = Math.round(amount / (1 + vatRate) * 100) / 100
+      newNet = roundMoney(amount / (1 + vatRate))
       newVat = amount - newNet
       newTotal = amount
     }
@@ -229,6 +229,7 @@ const ExpensesPage = () => {
   const [showBulkVatModal, setShowBulkVatModal] = useState(false)
   const [selectedExpenseIds, setSelectedExpenseIds] = useState([])
   const [bulkVatSubmitting, setBulkVatSubmitting] = useState(false)
+  const [quickBulkVatInterpretation, setQuickBulkVatInterpretation] = useState('add-on-top')
 
   const {
     register,
@@ -325,12 +326,16 @@ const ExpensesPage = () => {
         setFilteredExpenses(expenseList)
         setTotalPages(response.data.totalPages || 1)
 
-        const total = expenseList.reduce((sum, expense) => sum + (expense.amount || 0), 0)
+        const total = expenseList.reduce((sum, expense) => {
+          const paid = expense.totalAmount != null ? Number(expense.totalAmount) : (Number(expense.amount) || 0) + (Number(expense.vatAmount) || 0) || (Number(expense.amount) || 0)
+          return sum + paid
+        }, 0)
         const totalVat = expenseList.reduce((sum, expense) => sum + (Number(expense.vatAmount) || 0), 0)
         const totalClaimableVat = expenseList.reduce((sum, expense) => sum + (Number(expense.claimableVat ?? expense.ClaimableVat) || 0), 0)
         const categoryTotals = expenseList.reduce((acc, expense) => {
           const cat = expense.categoryName || 'Other'
-          acc[cat] = (acc[cat] || 0) + (expense.amount || 0)
+          const paid = expense.totalAmount != null ? Number(expense.totalAmount) : (Number(expense.amount) || 0) + (Number(expense.vatAmount) || 0) || (Number(expense.amount) || 0)
+          acc[cat] = (acc[cat] || 0) + paid
           return acc
         }, {})
 
@@ -558,7 +563,7 @@ const ExpensesPage = () => {
     setValue('isTaxClaimable', expense.isTaxClaimable !== false)
     setValue('isEntertainment', !!expense.isEntertainment)
     setValue('partialCreditPct', expense.partialCreditPct != null ? expense.partialCreditPct : 100)
-    setValue('vatInclusive', false) // existing expenses: backward compat, treat as exclusive
+    setValue('vatInclusive', (expense.vatInclusive ?? expense.VatInclusive) === true) // use persisted flag when available; else default false for legacy
     setAttachmentPreview(expense.attachmentUrl ? `/uploads/${expense.attachmentUrl}` : null)
     setShowEditModal(true)
   }
@@ -1151,31 +1156,52 @@ const ExpensesPage = () => {
             {isAdminOrOwner(user) && (
               <>
                 {allSelectedAreNoVat && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        const res = await expensesAPI.bulkVatUpdate({
-                          expenseIds: selectedExpenseIds,
-                          interpretation: 'add-on-top',
-                          vatRate: 0.05,
-                          isTaxClaimable: true,
-                          taxType: 'Standard',
-                          isEntertainment: false
-                        })
-                        if (res?.success && res?.data) {
-                          toast.success(`Applied 5% VAT to ${res.data.updated} expense(s)`)
-                          setSelectedExpenseIds([])
-                          await fetchExpenses()
-                        } else toast.error(res?.message || 'Update failed')
-                      } catch (err) {
-                        toast.error(err?.response?.data?.message || 'Update failed')
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700"
-                  >
-                    Apply 5% VAT to selected ({selectedNoVatCount})
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-gray-600 mr-1">VAT:</span>
+                    <div className="inline-flex rounded-lg border border-amber-300 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setQuickBulkVatInterpretation('add-on-top')}
+                        className={`px-2.5 py-1.5 text-xs font-medium ${quickBulkVatInterpretation === 'add-on-top' ? 'bg-amber-600 text-white' : 'bg-white text-gray-700 hover:bg-amber-50'}`}
+                        title="Amount was net; add 5% on top"
+                      >
+                        Add on top
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuickBulkVatInterpretation('extract-from-amount')}
+                        className={`px-2.5 py-1.5 text-xs font-medium ${quickBulkVatInterpretation === 'extract-from-amount' ? 'bg-amber-600 text-white' : 'bg-white text-gray-700 hover:bg-amber-50'}`}
+                        title="Amount included VAT; extract net and VAT"
+                      >
+                        Extract from amount
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await expensesAPI.bulkVatUpdate({
+                            expenseIds: selectedExpenseIds,
+                            interpretation: quickBulkVatInterpretation,
+                            vatRate: 0.05,
+                            isTaxClaimable: true,
+                            taxType: 'Standard',
+                            isEntertainment: false
+                          })
+                          if (res?.success && res?.data) {
+                            toast.success(`Applied 5% VAT to ${res.data.updated} expense(s)`)
+                            setSelectedExpenseIds([])
+                            await fetchExpenses()
+                          } else toast.error(res?.message || 'Update failed')
+                        } catch (err) {
+                          toast.error(err?.response?.data?.message || 'Update failed')
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700"
+                    >
+                      Apply 5% VAT to selected ({selectedNoVatCount})
+                    </button>
+                  </div>
                 )}
                 <button
                   type="button"
@@ -1302,6 +1328,11 @@ const ExpensesPage = () => {
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-right font-medium text-gray-900">
                           {formatCurrency(expense.amount)}
+                          {expense.vatAmount != null && expense.vatAmount > 0 && ((expense.vatInclusive ?? expense.VatInclusive) === true || (expense.vatInclusive ?? expense.VatInclusive) === false) && (
+                            <span className={`ml-1 text-xs font-normal ${(expense.vatInclusive ?? expense.VatInclusive) ? 'text-blue-600' : 'text-gray-500'}`} title={(expense.vatInclusive ?? expense.VatInclusive) ? 'Amount was entered VAT-inclusive' : 'Amount was entered VAT-exclusive'}>
+                              ({(expense.vatInclusive ?? expense.VatInclusive) ? 'Incl.' : 'Excl.'})
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-right text-gray-700">
                           {expense.vatAmount != null ? formatCurrency(expense.vatAmount) : '-'}
@@ -1578,9 +1609,9 @@ const ExpensesPage = () => {
             {watch('withVat') && Number(watch('amount')) > 0 && (() => {
               const amt = Number(watch('amount')) || 0
               const inclusive = !!watch('vatInclusive')
-              const net = inclusive ? Math.round(amt / 1.05 * 100) / 100 : amt
-              const vat = inclusive ? Math.round((amt - net) * 100) / 100 : Math.round(amt * 0.05 * 100) / 100
-              const total = inclusive ? amt : Math.round((amt + vat) * 100) / 100
+              const net = inclusive ? roundMoney(amt / 1.05) : amt
+              const vat = inclusive ? roundMoney(amt - net) : roundMoney(amt * 0.05)
+              const total = inclusive ? amt : roundMoney(amt + vat)
               return (
                 <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm space-y-0.5">
                   <p><span className="text-gray-600">Net: </span><span className="font-medium">{formatCurrency(net)}</span></p>
@@ -1603,10 +1634,21 @@ const ExpensesPage = () => {
                   <label htmlFor="withVat" className="text-sm text-gray-700">Include VAT (5%)</label>
                 </div>
                 {watch('withVat') && (
-                  <div className="flex items-center gap-2 mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <input type="checkbox" id="vatInclusive" {...register('vatInclusive')} className="rounded border-gray-300" />
-                    <label htmlFor="vatInclusive" className="text-sm text-blue-800 font-medium">Amount includes VAT (VAT-inclusive)</label>
-                    <span className="text-xs text-blue-600 ml-2">{watch('vatInclusive') ? 'VAT will be extracted from the amount' : 'VAT will be added to the amount'}</span>
+                  <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                    <p className="text-xs text-blue-800">
+                      Select whether the amount you enter is <strong>inclusive</strong> (total with VAT) or <strong>exclusive</strong> (net, VAT added on top).
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input type="checkbox" id="vatInclusive" {...register('vatInclusive')} className="rounded border-gray-300" />
+                      <label htmlFor="vatInclusive" className="text-sm text-blue-800 font-medium">Amount includes VAT (VAT-inclusive)</label>
+                      <span
+                        className="text-blue-600 cursor-help border border-blue-400 rounded-full w-4 h-4 inline-flex items-center justify-center text-xs font-bold"
+                        title="Inclusive: enter the total on the receipt (e.g. 105 AED); VAT is extracted. Exclusive: enter net only (e.g. 100 AED); 5% VAT is added."
+                      >
+                        ?
+                      </span>
+                      <span className="text-xs text-blue-600 ml-0">{watch('vatInclusive') ? 'VAT will be extracted from the amount' : 'VAT will be added to the amount'}</span>
+                    </div>
                   </div>
                 )}
                 {watch('withVat') && (
@@ -1812,9 +1854,9 @@ const ExpensesPage = () => {
             {watch('withVat') && Number(watch('amount')) > 0 && (() => {
               const amt = Number(watch('amount')) || 0
               const inclusive = !!watch('vatInclusive')
-              const net = inclusive ? Math.round(amt / 1.05 * 100) / 100 : amt
-              const vat = inclusive ? Math.round((amt - net) * 100) / 100 : Math.round(amt * 0.05 * 100) / 100
-              const total = inclusive ? amt : Math.round((amt + vat) * 100) / 100
+              const net = inclusive ? roundMoney(amt / 1.05) : amt
+              const vat = inclusive ? roundMoney(amt - net) : roundMoney(amt * 0.05)
+              const total = inclusive ? amt : roundMoney(amt + vat)
               return (
                 <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm space-y-0.5">
                   <p><span className="text-gray-600">Net: </span><span className="font-medium">{formatCurrency(net)}</span></p>
@@ -1844,9 +1886,20 @@ const ExpensesPage = () => {
                   <label htmlFor="editWithVat" className="text-sm text-gray-700">Include VAT (5%)</label>
                 </div>
                 {watch('withVat') && (
-                  <div className="flex items-center gap-2 mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <input type="checkbox" id="editVatInclusive" {...register('vatInclusive')} className="rounded border-gray-300" />
-                    <label htmlFor="editVatInclusive" className="text-sm text-blue-800 font-medium">Amount includes VAT (VAT-inclusive)</label>
+                  <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                    <p className="text-xs text-blue-800">
+                      Select whether the amount you enter is <strong>inclusive</strong> (total with VAT) or <strong>exclusive</strong> (net, VAT added on top).
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input type="checkbox" id="editVatInclusive" {...register('vatInclusive')} className="rounded border-gray-300" />
+                      <label htmlFor="editVatInclusive" className="text-sm text-blue-800 font-medium">Amount includes VAT (VAT-inclusive)</label>
+                      <span
+                        className="text-blue-600 cursor-help border border-blue-400 rounded-full w-4 h-4 inline-flex items-center justify-center text-xs font-bold"
+                        title="Inclusive: enter the total on the receipt (e.g. 105 AED); VAT is extracted. Exclusive: enter net only (e.g. 100 AED); 5% VAT is added."
+                      >
+                        ?
+                      </span>
+                    </div>
                   </div>
                 )}
                 {watch('withVat') && (

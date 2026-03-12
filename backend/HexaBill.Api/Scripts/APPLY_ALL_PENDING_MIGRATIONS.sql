@@ -194,6 +194,22 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- PART: Expenses VatInclusive (persist VAT-inclusive flag per expense)
+-- ============================================================================
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'Expenses' AND column_name = 'VatInclusive'
+    ) THEN
+        ALTER TABLE "Expenses" ADD COLUMN "VatInclusive" boolean NULL;
+        RAISE NOTICE 'Added VatInclusive column to Expenses table';
+    ELSE
+        RAISE NOTICE 'VatInclusive column already exists on Expenses, skipping';
+    END IF;
+END $$;
+
+-- ============================================================================
 -- FINAL SUMMARY
 -- ============================================================================
 DO $$

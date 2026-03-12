@@ -615,6 +615,8 @@ namespace HexaBill.Api.Models
         public decimal PartialCreditPct { get; set; }
         public decimal? ClaimableVat { get; set; }
         public decimal? VatRate { get; set; }
+        /// <summary>True = amount was VAT-inclusive; false = net; null = legacy/unknown.</summary>
+        public bool? VatInclusive { get; set; }
     }
 
     public class ExpenseCategoryDto

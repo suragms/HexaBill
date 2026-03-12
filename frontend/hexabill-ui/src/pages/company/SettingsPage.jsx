@@ -408,10 +408,10 @@ const SettingsPage = () => {
           setValue(key, mappedSettings[key], { shouldDirty: false })
         })
         setHasUnsavedChanges(false)
-        // Load logo data URI for stable display (survives container restarts)
+        // Load logo data URI first (survives refresh and container restarts); prefer over blob/URL
         try {
           const res = await adminAPI.getLogoDataUri()
-          const uri = res?.data ?? res
+          const uri = res?.data ?? res?.Data ?? (typeof res === 'string' ? res : null)
           setLogoDataUri(typeof uri === 'string' && uri.startsWith('data:') ? uri : null)
         } catch {
           setLogoDataUri(null)
@@ -532,6 +532,14 @@ const SettingsPage = () => {
         toast.success('Logo uploaded successfully.', { id: 'logo-upload' })
         setShowLogoModal(false)
         await fetchSettings()
+        // Ensure logo shows from DB (data URI) after upload so it persists on refresh
+        try {
+          const res = await adminAPI.getLogoDataUri()
+          const uri = res?.data ?? res?.Data ?? (typeof res === 'string' ? res : null)
+          if (typeof uri === 'string' && uri.startsWith('data:')) setLogoDataUri(uri)
+        } catch {
+          // keep existing logoDataUri or logoPreview
+        }
       } else {
         toast.error(response?.message || 'Failed to upload logo')
       }
@@ -817,10 +825,10 @@ const SettingsPage = () => {
               <div className="flex items-center space-x-6">
                 {/* Logo Preview */}
                 <div className="flex-shrink-0">
-                  {logoDataUri || logoPreview || logoBlobUrl || (settings.logoUrl && !settings.logoUrl.includes('/api/storage/') && !settings.logoUrl.includes('storage/tenants/')) ? (
+                  {(typeof logoDataUri === 'string' && logoDataUri.startsWith('data:')) || logoPreview || logoBlobUrl || (settings.logoUrl && !settings.logoUrl.includes('/api/storage/') && !settings.logoUrl.includes('storage/tenants/')) ? (
                     <div className="relative">
                       <img
-                        src={logoDataUri || logoPreview || logoBlobUrl || (settings.logoUrl?.startsWith('http') ? settings.logoUrl : `${getApiBaseUrlNoSuffix()}${settings.logoUrl?.startsWith('/') ? '' : '/'}${settings.logoUrl}`)}
+                        src={(typeof logoDataUri === 'string' && logoDataUri.startsWith('data:')) ? logoDataUri : (logoPreview || logoBlobUrl || (settings.logoUrl?.startsWith('http') ? settings.logoUrl : `${getApiBaseUrlNoSuffix()}${settings.logoUrl?.startsWith('/') ? '' : '/'}${settings.logoUrl}`))}
                         alt="Company Logo"
                         className="h-24 w-24 object-contain border border-gray-200 rounded-lg"
                         onError={(e) => {
@@ -1446,9 +1454,9 @@ const SettingsPage = () => {
           <div className="border-2 border-gray-200 rounded-lg p-4 bg-white">
             <div className="grid grid-cols-[140px_1fr_140px] gap-4 items-center">
               <div className="flex justify-center">
-                {(logoDataUri || logoPreview || logoBlobUrl || (settings.logoUrl && !settings.logoUrl.includes('/api/storage/') && !settings.logoUrl.includes('storage/tenants/'))) && (
+                {((typeof logoDataUri === 'string' && logoDataUri.startsWith('data:')) || logoPreview || logoBlobUrl || (settings.logoUrl && !settings.logoUrl.includes('/api/storage/') && !settings.logoUrl.includes('storage/tenants/'))) && (
                   <img
-                    src={logoDataUri || logoPreview || logoBlobUrl || (settings.logoUrl?.startsWith('http') ? settings.logoUrl : `${getApiBaseUrlNoSuffix()}${settings.logoUrl?.startsWith('/') ? '' : '/'}${settings.logoUrl}`)}
+                    src={(typeof logoDataUri === 'string' && logoDataUri.startsWith('data:')) ? logoDataUri : (logoPreview || logoBlobUrl || (settings.logoUrl?.startsWith('http') ? settings.logoUrl : `${getApiBaseUrlNoSuffix()}${settings.logoUrl?.startsWith('/') ? '' : '/'}${settings.logoUrl}`))}
                     alt="Company Logo"
                     className="max-w-[140px] max-h-[80px] object-contain"
                     onError={(e) => { e.target.style.display = 'none' }}

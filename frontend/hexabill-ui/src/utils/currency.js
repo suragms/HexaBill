@@ -1,3 +1,6 @@
+// Round to 2 decimal places (matches backend VatCalculator.Round for VAT previews)
+export const roundMoney = (value) => Math.round(Number(value) * 100) / 100
+
 // Currency utility for multi-currency support
 export const CURRENCIES = {
   AED: { symbol: 'AED', name: 'UAE Dirham', position: 'after', decimals: 2 },

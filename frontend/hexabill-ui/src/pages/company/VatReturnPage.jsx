@@ -52,10 +52,29 @@ const VatReturnPage = () => {
   const [vatReturn, setVatReturn] = useState(null)
   const [validationExpanded, setValidationExpanded] = useState(false)
 
+  const isValidDate = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)
+
   const fetchVatReturn = useCallback(async (fromOverride, toOverride) => {
     const f = fromOverride ?? fromDate
     const t = toOverride ?? toDate
-    if (!f || !t) return
+    if (!f || !t) {
+      setLoadError({ message: 'Please select a valid date range.', status: null, url: null })
+      setVatReturn(null)
+      setLoading(false)
+      return
+    }
+    if (!isValidDate(f) || !isValidDate(t)) {
+      setLoadError({ message: 'Please select a valid date range (YYYY-MM-DD).', status: null, url: null })
+      setVatReturn(null)
+      setLoading(false)
+      return
+    }
+    if (f > t) {
+      setLoadError({ message: 'From date must be before or equal to To date.', status: null, url: null })
+      setVatReturn(null)
+      setLoading(false)
+      return
+    }
     setLoadError(null)
     setLoading(true)
     try {
@@ -71,11 +90,17 @@ const VatReturnPage = () => {
       const data = err?.response?.data
       const msg = data?.message || err?.message || 'Failed to load VAT return'
       const errors = data?.errors
+      const url = err?.config?.url ?? err?.config?.baseURL ?? '(request URL not available)'
       if (status === 403) {
         setLoadError('access')
         if (!err?._handledByInterceptor) toast.error("You don't have permission to view VAT Return.")
       } else {
-        setLoadError({ message: msg, errors: Array.isArray(errors) ? errors : undefined })
+        setLoadError({
+          message: msg,
+          errors: Array.isArray(errors) ? errors : undefined,
+          status: status ?? null,
+          url: typeof url === 'string' ? url : null
+        })
         if (!err?._handledByInterceptor) toast.error(msg)
       }
       setVatReturn(null)
@@ -132,8 +157,8 @@ const VatReturnPage = () => {
 
   const v = vatReturn
   const hasFta201 = v && typeof v.box1a === 'number'
-  const issues = v?.validationIssues || []
-  const blocking = issues.filter(i => i.severity === 'Blocking')
+  const issues = (v?.validationIssues ?? v?.ValidationIssues ?? []).filter(Boolean)
+  const blocking = issues.filter(i => (i.severity || '').toString() === 'Blocking')
   const hasV002 = issues.some(i => i.ruleId === 'V002')
   const hasSys001 = issues.some(i => i.ruleId === 'SYS001')
   const [backfilling, setBackfilling] = useState(false)
@@ -254,6 +279,12 @@ const VatReturnPage = () => {
           <div className="max-w-md mx-auto rounded-lg border border-red-200 bg-red-50 p-6">
             <p className="text-red-800 font-medium">Error loading VAT return</p>
             <p className="mt-2 text-sm text-red-700">{loadError.message}</p>
+            {loadError.status != null && (
+              <p className="mt-1 text-xs text-red-600 font-mono">HTTP {loadError.status}</p>
+            )}
+            {loadError.url && (
+              <p className="mt-1 text-xs text-red-600 font-mono break-all" title={loadError.url}>{loadError.url}</p>
+            )}
             {(loadError.errors && loadError.errors.length > 0) && (
               <p className="mt-2 text-xs text-red-600 font-mono">Details: {loadError.errors[0]}</p>
             )}

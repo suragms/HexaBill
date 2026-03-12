@@ -114,7 +114,8 @@ namespace HexaBill.Api.Modules.Expenses
                     IsEntertainment = e.IsEntertainment,
                     PartialCreditPct = e.PartialCreditPct,
                     ClaimableVat = e.ClaimableVat,
-                    VatRate = e.VatRate
+                    VatRate = e.VatRate,
+                    VatInclusive = e.VatInclusive
                 })
                 .ToListAsync();
 
@@ -314,7 +315,8 @@ namespace HexaBill.Api.Modules.Expenses
                 IsEntertainment = expense.IsEntertainment,
                 PartialCreditPct = expense.PartialCreditPct,
                 ClaimableVat = expense.ClaimableVat,
-                VatRate = expense.VatRate
+                VatRate = expense.VatRate,
+                VatInclusive = expense.VatInclusive
             };
         }
 
@@ -399,7 +401,8 @@ namespace HexaBill.Api.Modules.Expenses
                         TaxType = taxType,
                         IsEntertainment = isEnt,
                         PartialCreditPct = partialPct,
-                        ClaimableVat = vatResult?.ClaimableVat
+                        ClaimableVat = vatResult?.ClaimableVat,
+                        VatInclusive = request.VatInclusive
                     };
 
                     // Auto-approve if owner/admin
@@ -457,7 +460,8 @@ namespace HexaBill.Api.Modules.Expenses
                         IsEntertainment = expense.IsEntertainment,
                         PartialCreditPct = expense.PartialCreditPct,
                         ClaimableVat = expense.ClaimableVat,
-                        VatRate = expense.VatRate
+                        VatRate = expense.VatRate,
+                        VatInclusive = expense.VatInclusive
                     };
                 }
                 catch (Exception ex)
@@ -551,6 +555,7 @@ namespace HexaBill.Api.Modules.Expenses
                     expense.IsEntertainment = isEnt;
                     expense.PartialCreditPct = partialPct;
                     expense.ClaimableVat = vatResult?.ClaimableVat;
+                    expense.VatInclusive = request.VatInclusive;
 
                     await _context.SaveChangesAsync();
 
@@ -600,7 +605,8 @@ namespace HexaBill.Api.Modules.Expenses
                         IsEntertainment = expense.IsEntertainment,
                         PartialCreditPct = expense.PartialCreditPct,
                         ClaimableVat = expense.ClaimableVat,
-                        VatRate = expense.VatRate
+                        VatRate = expense.VatRate,
+                        VatInclusive = expense.VatInclusive
                     };
                 }
                 catch (Exception ex)
