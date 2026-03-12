@@ -332,7 +332,10 @@ const VatReturnPage = () => {
                     setSearchParams({ from: fromDate, to: toDate })
                     toast.success('Recalculated')
                   }
-                } catch (err) { toast.error(err?.response?.data?.message || 'Calculate failed') }
+                } catch (err) {
+                  const msg = err?.response?.data?.message || err?.response?.data?.errors?.[0] || err?.message || 'Calculate failed'
+                  toast.error(msg)
+                }
               }}
               className="inline-flex items-center gap-1 px-3 py-2 border border-gray-300 rounded-md text-sm hover:bg-gray-50"
             >

@@ -871,7 +871,7 @@ export const reportsAPI = {
   },
 
   calculateVatReturn: async (from, to) => {
-    const response = await api.post('/reports/vat-return/calculate', { from: toYYYYMMDD(from), to: toYYYYMMDD(to) })
+    const response = await api.post('/reports/vat-return/calculate', { from: toYYYYMMDD(from), to: toYYYYMMDD(to) }, { _skipRetry: true })
     return response.data
   },
 

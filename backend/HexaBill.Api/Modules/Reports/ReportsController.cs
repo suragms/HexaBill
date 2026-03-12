@@ -143,67 +143,81 @@ namespace HexaBill.Api.Modules.Reports
         [Authorize(Roles = "Admin,Owner,Manager")]
         public async Task<ActionResult<ApiResponse<VatReturn201Dto>>> CalculateVatReturn([FromBody] VatReturnCalculateRequest request)
         {
-            var tenantId = CurrentTenantId;
-            if (tenantId <= 0 && !IsSystemAdmin) return Forbid();
-            if (request?.From == null || request.To == null)
-                return BadRequest(new ApiResponse<VatReturn201Dto> { Success = false, Message = "From and To dates are required." });
-            var from = request.From.Value.ToUtcKind();
-            var to = request.To.Value.ToUtcKind();
-            if (from > to)
-                return BadRequest(new ApiResponse<VatReturn201Dto> { Success = false, Message = "From must be before To." });
-            var dto = await _vatReturnReportService.GetVatReturn201Async(tenantId, from, to);
-            var (periodLabel, dueDate) = GetPeriodLabelAndDue(from, to);
-            var period = await _context.VatReturnPeriods
-                .FirstOrDefaultAsync(p => p.TenantId == tenantId && p.PeriodStart == from.Date && p.PeriodEnd == to.Date);
-            if (period == null)
+            try
             {
-                period = new VatReturnPeriod
+                var tenantId = CurrentTenantId;
+                if (tenantId <= 0 && !IsSystemAdmin) return Forbid();
+                if (request?.From == null || request.To == null)
+                    return BadRequest(new ApiResponse<VatReturn201Dto> { Success = false, Message = "From and To dates are required." });
+                var from = request.From.Value.ToUtcKind();
+                var to = request.To.Value.ToUtcKind();
+                if (from > to)
+                    return BadRequest(new ApiResponse<VatReturn201Dto> { Success = false, Message = "From must be before To." });
+                var dto = await _vatReturnReportService.GetVatReturn201Async(tenantId, from, to);
+                var (periodLabel, dueDate) = GetPeriodLabelAndDue(from, to);
+                var fromDateOnly = from.Date;
+                var toDateOnly = to.Date;
+                var period = await _context.VatReturnPeriods
+                    .FirstOrDefaultAsync(p => p.TenantId == tenantId && p.PeriodStart == fromDateOnly && p.PeriodEnd == toDateOnly);
+                if (period == null)
                 {
-                    TenantId = tenantId,
-                    PeriodStart = from.Date,
-                    PeriodEnd = to.Date,
-                    PeriodLabel = periodLabel,
-                    DueDate = dueDate,
-                    Status = "Calculated",
-                    Box1a = dto.Box1a,
-                    Box1b = dto.Box1b,
-                    Box2 = dto.Box2,
-                    Box3 = dto.Box3,
-                    Box4 = dto.Box4,
-                    Box9b = dto.Box9b,
-                    Box10 = dto.Box10,
-                    Box11 = dto.Box11,
-                    Box12 = dto.Box12,
-                    Box13a = dto.Box13a,
-                    Box13b = dto.Box13b,
-                    PetroleumExcluded = dto.PetroleumExcluded,
-                    CalculatedAt = DateTime.UtcNow
-                };
-                _context.VatReturnPeriods.Add(period);
+                    period = new VatReturnPeriod
+                    {
+                        TenantId = tenantId,
+                        PeriodStart = fromDateOnly,
+                        PeriodEnd = toDateOnly,
+                        PeriodLabel = periodLabel,
+                        DueDate = dueDate,
+                        Status = "Calculated",
+                        Box1a = dto.Box1a,
+                        Box1b = dto.Box1b,
+                        Box2 = dto.Box2,
+                        Box3 = dto.Box3,
+                        Box4 = dto.Box4,
+                        Box9b = dto.Box9b,
+                        Box10 = dto.Box10,
+                        Box11 = dto.Box11,
+                        Box12 = dto.Box12,
+                        Box13a = dto.Box13a,
+                        Box13b = dto.Box13b,
+                        PetroleumExcluded = dto.PetroleumExcluded,
+                        CalculatedAt = DateTime.UtcNow
+                    };
+                    _context.VatReturnPeriods.Add(period);
+                }
+                else
+                {
+                    period.Box1a = dto.Box1a;
+                    period.Box1b = dto.Box1b;
+                    period.Box2 = dto.Box2;
+                    period.Box3 = dto.Box3;
+                    period.Box4 = dto.Box4;
+                    period.Box9b = dto.Box9b;
+                    period.Box10 = dto.Box10;
+                    period.Box11 = dto.Box11;
+                    period.Box12 = dto.Box12;
+                    period.Box13a = dto.Box13a;
+                    period.Box13b = dto.Box13b;
+                    period.PetroleumExcluded = dto.PetroleumExcluded;
+                    period.CalculatedAt = DateTime.UtcNow;
+                    period.Status = period.Status == "Locked" ? "Locked" : "Calculated";
+                }
+                await _context.SaveChangesAsync();
+                dto.PeriodId = period.Id;
+                dto.Status = period.Status;
+                dto.CalculatedAt = period.CalculatedAt;
+                dto.ValidationIssues = await _vatValidation.ValidatePeriodAsync(tenantId, from, to, dto);
+                return Ok(new ApiResponse<VatReturn201Dto> { Success = true, Data = dto });
             }
-            else
+            catch (Exception ex)
             {
-                period.Box1a = dto.Box1a;
-                period.Box1b = dto.Box1b;
-                period.Box2 = dto.Box2;
-                period.Box3 = dto.Box3;
-                period.Box4 = dto.Box4;
-                period.Box9b = dto.Box9b;
-                period.Box10 = dto.Box10;
-                period.Box11 = dto.Box11;
-                period.Box12 = dto.Box12;
-                period.Box13a = dto.Box13a;
-                period.Box13b = dto.Box13b;
-                period.PetroleumExcluded = dto.PetroleumExcluded;
-                period.CalculatedAt = DateTime.UtcNow;
-                period.Status = period.Status == "Locked" ? "Locked" : "Calculated";
+                _logger.LogError(ex, "VAT return calculate failed: {Message}. TenantId={TenantId}, From={From}, To={To}", ex.Message, CurrentTenantId, request?.From, request?.To);
+                return StatusCode(500, new ApiResponse<VatReturn201Dto>
+                {
+                    Success = false,
+                    Message = "VAT calculation failed. Check Render logs for details. " + (ex.InnerException?.Message ?? ex.Message)
+                });
             }
-            await _context.SaveChangesAsync();
-            dto.PeriodId = period.Id;
-            dto.Status = period.Status;
-            dto.CalculatedAt = period.CalculatedAt;
-            dto.ValidationIssues = await _vatValidation.ValidatePeriodAsync(tenantId, from, to, dto);
-            return Ok(new ApiResponse<VatReturn201Dto> { Success = true, Data = dto });
         }
 
         [HttpPost("vat-return/periods/{id:int}/lock")]

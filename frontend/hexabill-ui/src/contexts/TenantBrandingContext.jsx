@@ -140,6 +140,15 @@ export const BrandingProvider = ({ children }) => {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [loadBranding])
 
+  // When Settings (or any component) uploads a logo, refresh header logo immediately
+  useEffect(() => {
+    const handleLogoUpdated = () => {
+      loadBranding()
+    }
+    window.addEventListener('logo-updated', handleLogoUpdated)
+    return () => window.removeEventListener('logo-updated', handleLogoUpdated)
+  }, [loadBranding])
+
   return (
     <BrandingContext.Provider value={{ ...branding, refresh: loadBranding }}>
       {children}
