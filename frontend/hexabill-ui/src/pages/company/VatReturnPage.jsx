@@ -53,7 +53,10 @@ function isSupportedVatPeriod(fromStr, toStr) {
 
 /**
  * If the range is not valid but can be unambiguously mapped to a quarter or full year,
- * return the corrected boundaries (e.g. 30-09–30-12 → Q4 01-10–31-12; 02-01–30-11 → full year).
+ * return the corrected boundaries. Handles:
+ * - Same-year quarter (e.g. 30-09–30-12 → Q4 01-10–31-12)
+ * - Cross-year "almost Q1" (e.g. 31-12-2025–30-03-2026 → Q1 2026: 01-01–31-03)
+ * - Same-year full year (≥300 days → 01-01–31-12)
  * Returns null if we should not snap.
  */
 function snapToSupportedVatPeriod(fromStr, toStr) {
@@ -61,9 +64,18 @@ function snapToSupportedVatPeriod(fromStr, toStr) {
   const from = new Date(fromStr)
   const to = new Date(toStr)
   if (isNaN(from.getTime()) || isNaN(to.getTime()) || from > to) return null
-  if (from.getFullYear() !== to.getFullYear()) return null
-  const y = from.getFullYear()
   const daysDiff = Math.round((to - from) / 86400000)
+  const fromYear = from.getFullYear()
+  const toYear = to.getFullYear()
+
+  if (fromYear !== toYear) {
+    if (toYear === fromYear + 1 && from.getMonth() === 11 && to.getMonth() <= 2 && daysDiff >= 1 && daysDiff <= 93) {
+      return { from: `${toYear}-01-01`, to: `${toYear}-03-31` }
+    }
+    return null
+  }
+
+  const y = fromYear
   if (daysDiff >= 300) return { from: `${y}-01-01`, to: `${y}-12-31` }
   if (daysDiff > 93) return null
   const toMonth = to.getMonth() + 1
@@ -153,10 +165,16 @@ const VatReturnPage = () => {
     try {
       const params = { from: fromFinal, to: toFinal }
       const res = await reportsAPI.getVatReturn(params)
-      if (res?.success && res?.data) {
+      if (res?.success && res?.data != null) {
         setVatReturn(res.data)
+        setLoadError(null)
       } else {
-        setVatReturn(null)
+        setVatReturn(res?.data ?? null)
+        if (!res?.success && res?.message) {
+          setLoadError({ message: res.message, status: res?.status ?? null, url: null })
+        } else {
+          setLoadError(null)
+        }
       }
     } catch (err) {
       const status = err?.response?.status
