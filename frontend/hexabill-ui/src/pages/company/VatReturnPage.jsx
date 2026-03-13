@@ -858,6 +858,9 @@ const VatReturnPage = () => {
               <div className="p-4">
                 <h2 className="text-lg font-semibold text-gray-900 mb-1">VAT Return Summary</h2>
                 <p className="text-xs text-gray-500 mb-4">Period: {periodLabel} ({fromDate} – {toDate})</p>
+                {!outputLines.length && !inputLines.length && !creditNoteLines.length && (
+                  <p className="text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4 mb-4">No data for this period.</p>
+                )}
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm border border-gray-200 rounded-lg">
                     <thead>
@@ -927,6 +930,9 @@ const VatReturnPage = () => {
             <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4 space-y-4">
               <h2 className="text-sm font-semibold text-gray-900">All VAT Transactions</h2>
               <p className="text-xs text-gray-500 mb-2">Combined view of sales outputs and purchase/expense inputs used in this VAT period.</p>
+              {!outputLines.length && !inputLines.length && (
+                <p className="text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4">No data for this period.</p>
+              )}
               <div className="overflow-x-auto">
                 <table className="min-w-full text-xs border border-gray-200 rounded-lg">
                   <thead>
@@ -966,6 +972,9 @@ const VatReturnPage = () => {
           {activeTab === 'sales' && (
             <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
               <h2 className="text-sm font-semibold text-gray-900">Sales Invoices (Output VAT)</h2>
+              {salesLinesForTotal.length === 0 && (
+                <p className="mt-2 text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4">No data for this period.</p>
+              )}
               <div className="overflow-x-auto mt-2">
                 <table className="min-w-full text-xs border border-gray-200 rounded-lg">
                   <thead>
@@ -1006,7 +1015,10 @@ const VatReturnPage = () => {
             <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
               <h2 className="text-sm font-semibold text-gray-900">Purchases (Input VAT)</h2>
               {purchaseLines.length === 0 && (
-                <p className="mt-2 text-xs text-gray-600">Only purchases in this period with <strong>Tax claimable</strong> and VAT &gt; 0 appear. Check that purchase dates fall in {fromDate} – {toDate} and that items are marked tax claimable on the Purchases page.</p>
+                <>
+                  <p className="mt-2 text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4">No data for this period.</p>
+                  <p className="mt-2 text-xs text-gray-600">Only purchases in this period with <strong>Tax claimable</strong> and VAT &gt; 0 appear. Check that purchase dates fall in {fromDate} – {toDate} and that items are marked tax claimable on the Purchases page.</p>
+                </>
               )}
               <div className="overflow-x-auto mt-2">
                 <table className="min-w-full text-xs border border-gray-200 rounded-lg">
@@ -1046,9 +1058,12 @@ const VatReturnPage = () => {
             <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
               <h2 className="text-sm font-semibold text-gray-900">Expenses (Input VAT)</h2>
               {expenseLines.length === 0 && (
-                <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                  No claimable expenses in this period. On the <strong>Expenses</strong> page, mark expenses as <strong>Tax claimable (ITC)</strong> and ensure they have VAT. Then click <strong>Refresh</strong> or <strong>Recalculate</strong> here to update.
-                </p>
+                <>
+                  <p className="mt-2 text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4">No data for this period.</p>
+                  <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                    No claimable expenses in this period. On the <strong>Expenses</strong> page, mark expenses as <strong>Tax claimable (ITC)</strong> and ensure they have VAT. Then click <strong>Refresh</strong> or <strong>Recalculate</strong> here to update.
+                  </p>
+                </>
               )}
               <div className="overflow-x-auto mt-2">
                 <table className="min-w-full text-xs border border-gray-200 rounded-lg">
@@ -1089,6 +1104,9 @@ const VatReturnPage = () => {
           {activeTab === 'creditNotes' && (
             <div className="mt-4 bg-white rounded-lg border border-gray-200 p-4">
               <h2 className="text-sm font-semibold text-gray-900">Credit Notes (Sales & Purchases)</h2>
+              {creditNoteLines.length === 0 && (
+                <p className="mt-2 text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4">No data for this period.</p>
+              )}
               <div className="overflow-x-auto mt-2">
                 <table className="min-w-full text-xs border border-gray-200 rounded-lg">
                   <thead>

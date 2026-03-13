@@ -452,6 +452,29 @@ const ExpensesPage = () => {
     filterExpenses()
   }, [filterExpenses])
 
+  // Pre-fill Add modal with default date (today) and first category so form is valid once user enters amount
+  useEffect(() => {
+    if (showAddModal && !selectedExpense) {
+      const today = new Date().toISOString().split('T')[0]
+      const defaultCategory = categories.length > 0 ? String(categories[0].id) : ''
+      reset({
+        category: defaultCategory,
+        amount: '',
+        date: today,
+        note: '',
+        withVat: true,
+        vatInclusive: true,
+        taxType: 'Standard',
+        isTaxClaimable: true,
+        isEntertainment: false,
+        partialCreditPct: 100,
+        branchId: branches?.length > 0 ? String(branches[0].id) : '',
+        routeId: '',
+        recurringExpenseId: ''
+      })
+    }
+  }, [showAddModal, selectedExpense, categories, branches, reset])
+
   // Backend requires decimal 0-100; never send NaN or empty string (causes JSON conversion error)
   const toPartialCreditPct = (v) => {
     if (v == null || v === '') return 100
@@ -811,6 +834,7 @@ const ExpensesPage = () => {
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
+              type="button"
               onClick={fetchExpenses}
               className="px-2 sm:px-3 py-1 text-xs font-medium bg-white border border-blue-300 rounded hover:bg-blue-50 flex items-center justify-center flex-1 sm:flex-none"
             >
@@ -828,6 +852,7 @@ const ExpensesPage = () => {
               <span className="sm:hidden">{exportingCsv ? '…' : 'CSV'}</span>
             </button>
             <button
+              type="button"
               onClick={() => setShowAddModal(true)}
               className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 flex items-center justify-center text-xs sm:text-sm flex-1 sm:flex-none min-h-[44px]"
             >
@@ -846,6 +871,7 @@ const ExpensesPage = () => {
                 <span className="hidden sm:inline">Category VAT</span>
               </button>
               <button
+                type="button"
                 onClick={() => setShowRecurringModal(true)}
                 className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-purple-600 text-white rounded font-medium hover:bg-purple-700 flex items-center justify-center text-xs sm:text-sm flex-1 sm:flex-none min-h-[44px]"
                 title="Manage recurring expenses"
@@ -871,6 +897,7 @@ const ExpensesPage = () => {
           {/* Date Range Presets */}
           <div className="mb-3 flex flex-wrap gap-2">
             <button
+              type="button"
               onClick={() => {
                 const to = new Date().toISOString().split('T')[0]
                 const from = new Date()
@@ -882,6 +909,7 @@ const ExpensesPage = () => {
               Last 7 Days
             </button>
             <button
+              type="button"
               onClick={() => {
                 const to = new Date()
                 const from = new Date(to)
@@ -893,6 +921,7 @@ const ExpensesPage = () => {
               This Week
             </button>
             <button
+              type="button"
               onClick={() => {
                 const to = new Date().toISOString().split('T')[0]
                 const from = new Date()
@@ -904,6 +933,7 @@ const ExpensesPage = () => {
               This Month
             </button>
             <button
+              type="button"
               onClick={() => {
                 const to = new Date().toISOString().split('T')[0]
                 const from = new Date()
@@ -915,6 +945,7 @@ const ExpensesPage = () => {
               This Year
             </button>
             <button
+              type="button"
               onClick={() => setFilterNoVatOnly(prev => !prev)}
               className={`px-2 py-1 text-xs rounded ${filterNoVatOnly ? 'bg-amber-200 text-amber-900' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
             >
@@ -1394,6 +1425,7 @@ const ExpensesPage = () => {
                         <td className="px-4 py-4 whitespace-nowrap text-center space-x-2">
                           {expense.attachmentUrl && (
                             <button
+                              type="button"
                               onClick={() => handleDownloadAttachment(expense)}
                               className="text-blue-600 hover:text-blue-900"
                               title="View Receipt"
@@ -1404,6 +1436,7 @@ const ExpensesPage = () => {
                           {isAdminOrOwner(user) && expense.status === 'Pending' && (
                             <>
                               <button
+                                type="button"
                                 onClick={() => handleApproveExpense(expense.id)}
                                 className="text-green-600 hover:text-green-900"
                                 title="Approve"
@@ -1411,6 +1444,7 @@ const ExpensesPage = () => {
                                 <CheckCircle className="h-4 w-4" />
                               </button>
                               <button
+                                type="button"
                                 onClick={() => handleRejectExpense(expense.id)}
                                 className="text-red-600 hover:text-red-900"
                                 title="Reject"
@@ -1422,6 +1456,7 @@ const ExpensesPage = () => {
                           {isAdminOrOwner(user) && (
                             <>
                               <button
+                                type="button"
                                 onClick={() => handleEdit(expense)}
                                 className="text-indigo-600 hover:text-indigo-900"
                                 title="Edit expense"
@@ -1429,6 +1464,7 @@ const ExpensesPage = () => {
                                 <Edit className="h-4 w-4" />
                               </button>
                               <button
+                                type="button"
                                 onClick={() => handleDelete(expense.id)}
                                 className="text-red-600 hover:text-red-900"
                                 title="Delete expense"
@@ -1496,6 +1532,7 @@ const ExpensesPage = () => {
                           </span>
                           {expense.attachmentUrl && (
                             <button
+                              type="button"
                               onClick={() => handleDownloadAttachment(expense)}
                               className="text-blue-600 hover:text-blue-900"
                               title="View receipt"
@@ -1519,6 +1556,7 @@ const ExpensesPage = () => {
                         {isAdminOrOwner(user) && expense.status === 'Pending' && (
                           <>
                             <button
+                              type="button"
                               onClick={() => handleApproveExpense(expense.id)}
                               className="text-green-600 hover:text-green-900 p-1"
                               title="Approve"
@@ -1526,6 +1564,7 @@ const ExpensesPage = () => {
                               <CheckCircle className="h-4 w-4" />
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleRejectExpense(expense.id)}
                               className="text-red-600 hover:text-red-900 p-1"
                               title="Reject"
@@ -1537,6 +1576,7 @@ const ExpensesPage = () => {
                         {isAdminOrOwner(user) && (
                           <>
                             <button
+                              type="button"
                               onClick={() => handleEdit(expense)}
                               className="text-indigo-600 hover:text-indigo-900 p-1"
                               title="Edit expense"
@@ -1544,6 +1584,7 @@ const ExpensesPage = () => {
                               <Edit className="h-4 w-4" />
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleDelete(expense.id)}
                               className="text-red-600 hover:text-red-900 p-1"
                               title="Delete expense"
@@ -1564,6 +1605,7 @@ const ExpensesPage = () => {
               <div className="flex justify-center mt-4 pb-4">
                 <div className="flex space-x-2">
                   <button
+                    type="button"
                     onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                     disabled={currentPage === 1}
                     className="px-3 py-1 border border-neutral-200 rounded-lg text-xs disabled:opacity-50"
@@ -1574,6 +1616,7 @@ const ExpensesPage = () => {
                     Page {currentPage} of {totalPages}
                   </span>
                   <button
+                    type="button"
                     onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                     disabled={currentPage === totalPages}
                     className="px-3 py-1 border border-neutral-200 rounded-lg text-xs disabled:opacity-50"
@@ -2051,6 +2094,7 @@ const ExpensesPage = () => {
             </p>
             
             <button
+              type="button"
               onClick={() => {
                 // TODO: Open create recurring expense form
                 showToast.info('Recurring expense creation coming soon')
@@ -2081,6 +2125,7 @@ const ExpensesPage = () => {
                       </div>
                       <div className="flex items-center gap-2">
                         <button
+                          type="button"
                           onClick={() => {
                             // TODO: Edit recurring expense
                             showToast.info('Edit recurring expense coming soon')
@@ -2090,6 +2135,7 @@ const ExpensesPage = () => {
                           <Edit className="h-4 w-4" />
                         </button>
                         <button
+                          type="button"
                           onClick={() => {
                             // TODO: Delete recurring expense
                             showToast.info('Delete recurring expense coming soon')
