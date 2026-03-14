@@ -65,11 +65,15 @@ namespace HexaBill.Api.Modules.Billing
             #endif
         }
 
-        public async Task<byte[]> GenerateInvoicePdfAsync(SaleDto sale)
+        public async Task<byte[]> GenerateInvoicePdfAsync(SaleDto sale, string format = "A4")
         {
+            var formatNormalized = (format ?? "A4").Trim();
+            if (string.IsNullOrEmpty(formatNormalized) || !new[] { "A4", "A5", "80mm", "58mm" }.Contains(formatNormalized, StringComparer.OrdinalIgnoreCase))
+                formatNormalized = "A4";
+
             try
             {
-                _logger.LogDebug("Generating PDF for sale {SaleId}, Invoice {InvoiceNo}, Items count: {Count}", sale.Id, sale.InvoiceNo, sale.Items?.Count ?? 0);
+                _logger.LogDebug("Generating PDF for sale {SaleId}, Invoice {InvoiceNo}, format {Format}, Items count: {Count}", sale.Id, sale.InvoiceNo, formatNormalized, sale.Items?.Count ?? 0);
                 
                 if (sale.Items == null || !sale.Items.Any())
                 {
@@ -78,11 +82,29 @@ namespace HexaBill.Api.Modules.Billing
                 
                 var settings = await GetCompanySettingsAsync(sale.OwnerId); // Use OwnerId from SaleDto
                 
-                // CRITICAL: Get customer's pending balance for invoice footer acknowledgment
+                // CRITICAL: Get customer's pending balance for invoice footer acknowledgment (A4 only)
                 var customerPendingInfo = await GetCustomerPendingBalanceInfoAsync(sale.CustomerId, sale.OwnerId);
                 _logger.LogDebug("Company: {CompanyName}", settings.CompanyNameEn);
                 
-                // Try to use HTML invoice template first (from file or database)
+                var customerTrn = await GetCustomerTrnAsync(sale.CustomerId);
+                var trnDisplay = string.IsNullOrWhiteSpace(customerTrn) ? "" : customerTrn;
+                _logger.LogDebug("Customer TRN: {Trn}", trnDisplay);
+
+                // A5, 80mm, 58mm: use QuestPDF layouts directly (no HTML template path)
+                if (formatNormalized.Equals("A5", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await Task.FromResult(GenerateInvoicePdfA5(sale, settings, trnDisplay));
+                }
+                if (formatNormalized.Equals("80mm", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await Task.FromResult(GenerateInvoicePdf80mm(sale, settings, trnDisplay));
+                }
+                if (formatNormalized.Equals("58mm", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await Task.FromResult(GenerateInvoicePdf58mm(sale, settings, trnDisplay));
+                }
+
+                // A4: try HTML template (for preview/other use), then build QuestPDF A4
                 string? templateHtml = null;
                 try
                 {
@@ -97,13 +119,11 @@ namespace HexaBill.Api.Modules.Billing
                         LogoImageBytes = settings.LogoImageBytes
                     };
                     
-                    // Try to render from database template first (tenant-scoped)
                     templateHtml = await _templateService.RenderActiveTemplateAsync(sale.OwnerId, sale, templateSettings);
                     _logger.LogDebug("Using active invoice template from database");
                 }
                 catch (Exception ex)
                 {
-                    // If database template fails, try to use template file directly
                     _logger.LogDebug("Database template not available: {Message}", ex.Message);
                     try
                     {
@@ -130,20 +150,6 @@ namespace HexaBill.Api.Modules.Billing
                         _logger.LogDebug("Template file also failed: {Message}", fileEx.Message);
                     }
                 }
-                
-                // If we have HTML template, we would need HTML-to-PDF library to use it
-                // For now, we'll use QuestPDF as fallback
-                if (templateHtml != null)
-                {
-                    _logger.LogDebug("HTML template rendered successfully, using QuestPDF fallback");
-                }
-                else
-                {
-                    _logger.LogDebug("Using default QuestPDF template");
-                }
-                var customerTrn = await GetCustomerTrnAsync(sale.CustomerId);
-                var trnDisplay = string.IsNullOrWhiteSpace(customerTrn) ? "" : customerTrn;
-                _logger.LogDebug("Customer TRN: {Trn}", trnDisplay);
 
                 var document = Document.Create(container =>
                 {
@@ -501,6 +507,212 @@ namespace HexaBill.Api.Modules.Billing
                 _logger.LogError("Stack trace: {StackTrace}", ex.StackTrace);
                 throw;
             }
+        }
+
+        /// <summary>A5 (148x210mm) compact invoice - same Gulf VAT content as A4, smaller margins and fonts.</summary>
+        private byte[] GenerateInvoicePdfA5(SaleDto sale, InvoiceTemplateService.CompanySettings settings, string trnDisplay)
+        {
+            var invoiceDateStr = FormatInvoiceDate(sale.InvoiceDate, settings);
+            var document = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(148, 210, Unit.Millimetre);
+                    page.Margin(3, Unit.Millimetre);
+                    page.PageColor(Colors.White);
+                    page.DefaultTextStyle(x => x.FontSize(8f).FontFamily(_arabicFont));
+
+                    page.Content().Column(column =>
+                    {
+                        column.Spacing(0);
+                        column.Item().Padding(2).Column(inner =>
+                        {
+                            inner.Spacing(0);
+                            // Header: company name, TRN, tax invoice
+                            inner.Item().Row(r =>
+                            {
+                                r.RelativeItem().AlignCenter().Column(c =>
+                                {
+                                    c.Item().Text(settings.CompanyNameEn.ToUpper()).FontSize(12).Bold().AlignCenter();
+                                    if (!string.IsNullOrEmpty(settings.CompanyNameAr))
+                                        c.Item().Text(settings.CompanyNameAr).FontSize(10).Bold().FontFamily(_arabicFont).DirectionFromRightToLeft().AlignCenter();
+                                    c.Item().Text($"TRN: {settings.CompanyTrn}").FontSize(7);
+                                    c.Item().Text($"Mob: {settings.CompanyPhone} | {settings.CompanyAddress}").FontSize(6);
+                                });
+                            });
+                            inner.Item().PaddingTop(1).PaddingBottom(1).BorderTop(0.5f).BorderBottom(0.5f)
+                                .Text("TAX INVOICE").FontSize(10).Bold().AlignCenter();
+                            inner.Item().PaddingTop(1).Row(r =>
+                            {
+                                r.RelativeItem().Text($"Inv: {sale.InvoiceNo} | Date: {invoiceDateStr}").FontSize(7);
+                                r.RelativeItem().AlignRight().Text($"Cust TRN: {trnDisplay}").FontSize(7);
+                            });
+                            inner.Item().Text($"Customer: {sale.CustomerName ?? "Cash Customer"}").FontSize(7);
+
+                            // Items table - compact
+                            inner.Item().PaddingTop(1).Border(0.5f).Table(table =>
+                            {
+                                table.ColumnsDefinition(c =>
+                                {
+                                    c.ConstantColumn(12); c.RelativeColumn(25); c.ConstantColumn(10);
+                                    c.ConstantColumn(10); c.ConstantColumn(12); c.ConstantColumn(10); c.ConstantColumn(12);
+                                });
+                                table.Header(h =>
+                                {
+                                    h.Cell().Border(0.5f).Padding(1).AlignCenter().Text("#").FontSize(6);
+                                    h.Cell().Border(0.5f).Padding(1).AlignCenter().Text("Description").FontSize(6);
+                                    h.Cell().Border(0.5f).Padding(1).AlignCenter().Text("Unit").FontSize(6);
+                                    h.Cell().Border(0.5f).Padding(1).AlignCenter().Text("Qty").FontSize(6);
+                                    h.Cell().Border(0.5f).Padding(1).AlignCenter().Text("Price").FontSize(6);
+                                    h.Cell().Border(0.5f).Padding(1).AlignCenter().Text("Total").FontSize(6);
+                                    h.Cell().Border(0.5f).Padding(1).AlignCenter().Text("VAT 5%").FontSize(6);
+                                    h.Cell().Border(0.5f).Padding(1).AlignCenter().Text("Amount").FontSize(6);
+                                });
+                                if (sale.Items != null)
+                                {
+                                    for (int i = 0; i < sale.Items.Count; i++)
+                                    {
+                                        var item = sale.Items[i];
+                                        table.Cell().Border(0.5f).Padding(1).AlignCenter().Text((i + 1).ToString()).FontSize(6);
+                                        table.Cell().Border(0.5f).Padding(1).AlignLeft().Text(item.ProductName ?? "").FontSize(6);
+                                        table.Cell().Border(0.5f).Padding(1).AlignCenter().Text(item.UnitType ?? "CRTN").FontSize(6);
+                                        table.Cell().Border(0.5f).Padding(1).AlignCenter().Text(item.Qty.ToString("0.##")).FontSize(6);
+                                        table.Cell().Border(0.5f).Padding(1).AlignRight().Text(item.UnitPrice.ToString("0.00")).FontSize(6);
+                                        table.Cell().Border(0.5f).Padding(1).AlignRight().Text((item.LineTotal - item.VatAmount).ToString("0.00")).FontSize(6);
+                                        table.Cell().Border(0.5f).Padding(1).AlignRight().Text(item.VatAmount.ToString("0.00")).FontSize(6);
+                                        table.Cell().Border(0.5f).Padding(1).AlignRight().Text(item.LineTotal.ToString("0.00")).FontSize(6);
+                                    }
+                                }
+                                table.Cell().ColumnSpan(7).Border(0.5f).Padding(1).Text("Subtotal").FontSize(6);
+                                table.Cell().Border(0.5f).Padding(1).AlignRight().Text(sale.Subtotal.ToString("0.00")).FontSize(6);
+                                table.Cell().ColumnSpan(7).Border(0.5f).Padding(1).Text("VAT 5%").FontSize(6);
+                                table.Cell().Border(0.5f).Padding(1).AlignRight().Text(sale.VatTotal.ToString("0.00")).FontSize(6);
+                                if (sale.RoundOff != 0)
+                                {
+                                    table.Cell().ColumnSpan(7).Border(0.5f).Padding(1).Text("Round Off").FontSize(6);
+                                    table.Cell().Border(0.5f).Padding(1).AlignRight().Text(sale.RoundOff.ToString("0.00")).FontSize(6);
+                                }
+                                table.Cell().ColumnSpan(7).Border(0.5f).Padding(1).Text("Total (" + (settings.Currency ?? "AED") + ")").FontSize(7).Bold();
+                                table.Cell().Border(0.5f).Padding(1).AlignRight().Text(sale.GrandTotal.ToString("0.00")).FontSize(7).Bold();
+                            });
+                            inner.Item().PaddingTop(2).AlignCenter().Text("Thank you for your business").FontSize(6);
+                        });
+                    });
+                });
+            });
+            return document.GeneratePdf();
+        }
+
+        /// <summary>80mm thermal receipt - Gulf VAT: supplier, TRN, inv no, date, items (Item|Qty|Total), subtotal, VAT 5%, total, AED.</summary>
+        private byte[] GenerateInvoicePdf80mm(SaleDto sale, InvoiceTemplateService.CompanySettings settings, string trnDisplay)
+        {
+            var invoiceDateStr = FormatInvoiceDate(sale.InvoiceDate, settings);
+            var document = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(80, 350, Unit.Millimetre);
+                    page.Margin(2, Unit.Millimetre);
+                    page.PageColor(Colors.White);
+                    page.DefaultTextStyle(x => x.FontSize(7f).FontFamily(_englishFont));
+
+                    page.Content().Column(column =>
+                    {
+                        column.Spacing(0);
+                        column.Item().AlignCenter().Text(settings.CompanyNameEn).FontSize(9).Bold();
+                        column.Item().AlignCenter().Text($"TRN: {settings.CompanyTrn}").FontSize(6);
+                        column.Item().AlignCenter().Text(settings.CompanyAddress).FontSize(5);
+                        column.Item().AlignCenter().Text("TAX INVOICE").FontSize(8).Bold();
+                        column.Item().AlignCenter().Text($"#{sale.InvoiceNo} | {invoiceDateStr}").FontSize(6);
+                        column.Item().Text($"Customer: {sale.CustomerName ?? "Cash"}").FontSize(6);
+                        if (!string.IsNullOrEmpty(trnDisplay))
+                            column.Item().Text($"Cust TRN: {trnDisplay}").FontSize(5);
+                        column.Item().PaddingVertical(1).LineHorizontal(0.5f);
+
+                        column.Item().Table(t =>
+                        {
+                            t.ColumnsDefinition(c => { c.RelativeColumn(50); c.ConstantColumn(12); c.ConstantColumn(18); });
+                            t.Header(h =>
+                            {
+                                h.Cell().Padding(1).Text("Item").FontSize(6).Bold();
+                                h.Cell().Padding(1).AlignRight().Text("Qty").FontSize(6).Bold();
+                                h.Cell().Padding(1).AlignRight().Text("Total").FontSize(6).Bold();
+                            });
+                            if (sale.Items != null)
+                                foreach (var item in sale.Items)
+                                {
+                                    t.Cell().Padding(1).Text(item.ProductName ?? "").FontSize(6);
+                                    t.Cell().Padding(1).AlignRight().Text(item.Qty.ToString("0.##")).FontSize(6);
+                                    t.Cell().Padding(1).AlignRight().Text(item.LineTotal.ToString("0.00")).FontSize(6);
+                                }
+                        });
+                        column.Item().LineHorizontal(0.5f);
+                        column.Item().Row(r => { r.RelativeItem().Text("Subtotal"); r.AutoItem().Text(sale.Subtotal.ToString("0.00")); });
+                        column.Item().Row(r => { r.RelativeItem().Text("VAT 5%"); r.AutoItem().Text(sale.VatTotal.ToString("0.00")); });
+                        if (sale.RoundOff != 0)
+                            column.Item().Row(r => { r.RelativeItem().Text("Round Off"); r.AutoItem().Text(sale.RoundOff.ToString("0.00")); });
+                        column.Item().Row(r => { r.RelativeItem().Text("TOTAL (" + (settings.Currency ?? "AED") + ")").Bold(); r.AutoItem().Text(sale.GrandTotal.ToString("0.00")).Bold(); });
+                        column.Item().PaddingTop(2).AlignCenter().Text("Thank you").FontSize(5);
+                    });
+                });
+            });
+            return document.GeneratePdf();
+        }
+
+        /// <summary>58mm thermal receipt - same Gulf VAT fields, very compact.</summary>
+        private byte[] GenerateInvoicePdf58mm(SaleDto sale, InvoiceTemplateService.CompanySettings settings, string trnDisplay)
+        {
+            var invoiceDateStr = FormatInvoiceDate(sale.InvoiceDate, settings);
+            var document = Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(58, 350, Unit.Millimetre);
+                    page.Margin(1.5f, Unit.Millimetre);
+                    page.PageColor(Colors.White);
+                    page.DefaultTextStyle(x => x.FontSize(5f).FontFamily(_englishFont));
+
+                    page.Content().Column(column =>
+                    {
+                        column.Spacing(0);
+                        column.Item().AlignCenter().Text(settings.CompanyNameEn).FontSize(7).Bold();
+                        column.Item().AlignCenter().Text($"TRN:{settings.CompanyTrn}").FontSize(5);
+                        column.Item().AlignCenter().Text("TAX INV").FontSize(6).Bold();
+                        column.Item().AlignCenter().Text($"{sale.InvoiceNo} {invoiceDateStr}").FontSize(5);
+                        column.Item().Text($"Cust:{sale.CustomerName ?? "Cash"}").FontSize(5);
+                        if (!string.IsNullOrEmpty(trnDisplay))
+                            column.Item().Text($"TRN:{trnDisplay}").FontSize(4);
+                        column.Item().LineHorizontal(0.5f);
+
+                        column.Item().Table(t =>
+                        {
+                            t.ColumnsDefinition(c => { c.RelativeColumn(55); c.ConstantColumn(12); c.ConstantColumn(16); });
+                            t.Header(h =>
+                            {
+                                h.Cell().Padding(0.5f).Text("Item").FontSize(5).Bold();
+                                h.Cell().Padding(0.5f).AlignRight().Text("Qty").FontSize(5).Bold();
+                                h.Cell().Padding(0.5f).AlignRight().Text("Total").FontSize(5).Bold();
+                            });
+                            if (sale.Items != null)
+                                foreach (var item in sale.Items)
+                                {
+                                    t.Cell().Padding(0.5f).Text(item.ProductName ?? "").FontSize(5);
+                                    t.Cell().Padding(0.5f).AlignRight().Text(item.Qty.ToString("0.##")).FontSize(5);
+                                    t.Cell().Padding(0.5f).AlignRight().Text(item.LineTotal.ToString("0.00")).FontSize(5);
+                                }
+                        });
+                        column.Item().LineHorizontal(0.5f);
+                        column.Item().Row(r => { r.RelativeItem().Text("Sub").FontSize(5); r.AutoItem().Text(sale.Subtotal.ToString("0.00")).FontSize(5); });
+                        column.Item().Row(r => { r.RelativeItem().Text("VAT5%").FontSize(5); r.AutoItem().Text(sale.VatTotal.ToString("0.00")).FontSize(5); });
+                        if (sale.RoundOff != 0)
+                            column.Item().Row(r => { r.RelativeItem().Text("Rnd").FontSize(5); r.AutoItem().Text(sale.RoundOff.ToString("0.00")).FontSize(5); });
+                        column.Item().Row(r => { r.RelativeItem().Text("TOTAL").FontSize(6).Bold(); r.AutoItem().Text(sale.GrandTotal.ToString("0.00")).FontSize(6).Bold(); });
+                        column.Item().AlignCenter().Text(settings.Currency ?? "AED").FontSize(5);
+                        column.Item().PaddingTop(1).AlignCenter().Text("Thank you").FontSize(4);
+                    });
+                });
+            });
+            return document.GeneratePdf();
         }
 
         public async Task<byte[]> GenerateCombinedInvoicePdfAsync(List<SaleDto> sales)

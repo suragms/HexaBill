@@ -230,8 +230,8 @@ const Layout = () => {
       >
         Skip to main content
       </a>
-      {/* Impersonation banner: fixed at very top so user always sees they are impersonating */}
-      {selectedTenantId && (
+      {/* Impersonation banner: ONLY for System Admin actively impersonating a tenant. Never show to normal tenant users (Owner/Admin/Staff). */}
+      {userIsSystemAdmin && selectedTenantId && (
         <div className="fixed top-0 left-0 right-0 z-[9999] bg-orange-500 text-white px-4 py-2 flex items-center justify-between text-sm font-medium">
           <span>IMPERSONATING: {selectedTenantName || 'Tenant'} — All actions affect their data.</span>
           <button
@@ -244,8 +244,8 @@ const Layout = () => {
         </div>
       )}
 
-      {/* Mobile Header with Hamburger Menu — below impersonation banner when visible */}
-      <div className={`lg:hidden fixed left-0 right-0 bg-primary-900 text-white border-b border-primary-800 z-50 ${selectedTenantId ? 'top-10' : 'top-0'}`}>
+      {/* Mobile Header with Hamburger Menu — below impersonation banner when visible (System Admin only) */}
+      <div className={`lg:hidden fixed left-0 right-0 bg-primary-900 text-white border-b border-primary-800 z-50 ${userIsSystemAdmin && selectedTenantId ? 'top-10' : 'top-0'}`}>
         <div className="flex items-center justify-between px-4 py-3">
           <button
             type="button"
@@ -382,7 +382,7 @@ const Layout = () => {
       </div>
 
       {/* Main content - Full viewport after sidebar; pt-10 when impersonation banner visible so content not covered */}
-      <div className={`flex flex-col min-h-screen w-full transition-all duration-300 ${isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-60'} ${selectedTenantId ? 'pt-10 lg:pt-10' : ''}`}>
+      <div className={`flex flex-col min-h-screen w-full transition-all duration-300 ${isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-60'} ${userIsSystemAdmin && selectedTenantId ? 'pt-10 lg:pt-10' : ''}`}>
         {backendUnavailable && (
           <div className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-100 border-b border-amber-200 text-amber-900 text-sm text-left">
             <span className="font-medium">Service temporarily unavailable.</span>
@@ -391,7 +391,7 @@ const Layout = () => {
         )}
         <SubscriptionGraceBanner />
         {/* Top Header Bar for Other Pages - Similar to Dashboard */}
-        <div className={`hidden lg:block fixed right-0 h-16 bg-primary-900 text-white border-b border-primary-800 z-30 transition-all duration-300 ${isSidebarCollapsed ? 'left-20' : 'left-60'} ${selectedTenantId ? 'top-10' : 'top-0'}`}>
+        <div className={`hidden lg:block fixed right-0 h-16 bg-primary-900 text-white border-b border-primary-800 z-30 transition-all duration-300 ${isSidebarCollapsed ? 'left-20' : 'left-60'} ${userIsSystemAdmin && selectedTenantId ? 'top-10' : 'top-0'}`}>
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center space-x-3 flex-1 min-w-0">
               <button
@@ -524,7 +524,7 @@ const Layout = () => {
           </div>
         </div>
         {/* Page content — full width max 1400px; Reports use full width (production plan Phase 2) */}
-        <main id="main-content" className={`flex-1 w-full min-w-0 flex flex-col overflow-hidden pb-20 lg:pb-6 bg-[#F8FAFC] ${selectedTenantId ? 'pt-24 lg:pt-28' : 'pt-14 lg:pt-20'}`}>
+        <main id="main-content" className={`flex-1 w-full min-w-0 flex flex-col overflow-hidden pb-20 lg:pb-6 bg-[#F8FAFC] ${userIsSystemAdmin && selectedTenantId ? 'pt-24 lg:pt-28' : 'pt-14 lg:pt-20'}`}>
           <div className="flex-1 overflow-auto">
             <div className={`w-full min-h-full mx-auto px-4 sm:px-6 lg:px-6 py-4 lg:py-6 ${location.pathname === '/reports' || location.pathname === '/suppliers' || location.pathname.startsWith('/suppliers/') ? 'max-w-full' : 'max-w-[1280px]'}`}>
               <Outlet />

@@ -11,19 +11,19 @@ const PrintOptionsModal = ({ saleId, invoiceNo, onClose, onPrint }) => {
 
   const handlePrint = async () => {
     try {
-      // Fetch PDF via authenticated api (required after removing AllowAnonymous from backend)
-      const pdfOptions = format === 'A4' ? {} : { format: 'thermal', width: format === 'thermal58' ? 58 : 80 }
+      // Backend expects format: A4 | A5 | 80mm | 58mm
+      const pdfOptions = { format }
       const blob = await salesAPI.getInvoicePdf(saleId, pdfOptions)
       const blobUrl = URL.createObjectURL(blob)
       const printWindow = window.open(blobUrl, '_blank')
       if (printWindow) {
         printWindow.onload = () => {
           setTimeout(() => {
-            if (format === 'A4') printWindow.print()
+            printWindow.print()
             URL.revokeObjectURL(blobUrl)
           }, 250)
         }
-        toast.success(format === 'A4' ? 'Invoice opened for printing' : 'Thermal format opened')
+        toast.success('Invoice opened for printing')
       } else {
         URL.revokeObjectURL(blobUrl)
         toast.error('Please allow pop-ups for this site to print')
@@ -53,13 +53,14 @@ const PrintOptionsModal = ({ saleId, invoiceNo, onClose, onPrint }) => {
 
         {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Format Selection */}
+          {/* Format Selection - A4, A5, 80mm, 58mm (Gulf VAT compliant) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Format
+              Print format
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
+                type="button"
                 onClick={() => setFormat('A4')}
                 className={`p-4 border-2 rounded-lg text-center transition-colors ${
                   format === 'A4'
@@ -68,24 +69,49 @@ const PrintOptionsModal = ({ saleId, invoiceNo, onClose, onPrint }) => {
                 }`}
               >
                 <FileText className="h-8 w-8 mx-auto mb-2 text-blue-600" />
-                <span className="font-medium">A4</span>
+                <span className="font-medium">A4 Invoice</span>
               </button>
               <button
-                onClick={() => setFormat('thermal58')}
+                type="button"
+                onClick={() => setFormat('A5')}
                 className={`p-4 border-2 rounded-lg text-center transition-colors ${
-                  format === 'thermal58'
+                  format === 'A5'
+                    ? 'border-blue-600 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <FileText className="h-8 w-8 mx-auto mb-2 text-blue-500" />
+                <span className="font-medium">A5 Invoice</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormat('80mm')}
+                className={`p-4 border-2 rounded-lg text-center transition-colors ${
+                  format === '80mm'
                     ? 'border-blue-600 bg-blue-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
                 <Printer className="h-8 w-8 mx-auto mb-2 text-green-600" />
-                <span className="font-medium">Thermal 58mm</span>
+                <span className="font-medium">80mm Receipt</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormat('58mm')}
+                className={`p-4 border-2 rounded-lg text-center transition-colors ${
+                  format === '58mm'
+                    ? 'border-blue-600 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <Printer className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                <span className="font-medium">58mm Receipt</span>
               </button>
             </div>
           </div>
 
-          {/* Copies */}
-          {format === 'A4' && (
+          {/* Copies - A4/A5 only */}
+          {(format === 'A4' || format === 'A5') && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Copies

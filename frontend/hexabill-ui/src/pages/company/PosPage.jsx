@@ -31,6 +31,7 @@ import { useBranding } from '../../contexts/TenantBrandingContext'
 import toast from 'react-hot-toast'
 import { showToast } from '../../utils/toast'
 import ConfirmDangerModal from '../../components/ConfirmDangerModal'
+import PrintOptionsModal from '../../components/PrintOptionsModal'
 
 import { getApiBaseUrl } from '../../services/apiConfig'
 const API_BASE_URL = getApiBaseUrl()
@@ -62,6 +63,7 @@ const PosPage = () => {
   const [loading, setLoading] = useState(false)
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [showInvoiceOptionsModal, setShowInvoiceOptionsModal] = useState(false)
+  const [showPrintFormatModal, setShowPrintFormatModal] = useState(false)
   const [lastCreatedInvoice, setLastCreatedInvoice] = useState(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [editingSaleId, setEditingSaleId] = useState(null)
@@ -3127,6 +3129,16 @@ const PosPage = () => {
         </div>
       )}
 
+      {/* Print format selector (A4, A5, 80mm, 58mm) - shown when user clicks Print after save */}
+      {showPrintFormatModal && lastCreatedInvoice && (
+        <PrintOptionsModal
+          saleId={lastCreatedInvoice.id}
+          invoiceNo={lastCreatedInvoice.invoiceNo}
+          onClose={() => setShowPrintFormatModal(false)}
+          onPrint={() => setShowPrintFormatModal(false)}
+        />
+      )}
+
       {/* Invoice Options Modal */}
       {showInvoiceOptionsModal && lastCreatedInvoice && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -3156,11 +3168,12 @@ const PosPage = () => {
               {/* Action Buttons */}
               <div className="space-y-3">
                 <button
-                  onClick={handlePrintReceipt}
+                  type="button"
+                  onClick={() => setShowPrintFormatModal(true)}
                   className="w-full flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
                 >
                   <Printer className="h-5 w-5 mr-2" />
-                  Print Receipt
+                  Print
                 </button>
 
                 <button

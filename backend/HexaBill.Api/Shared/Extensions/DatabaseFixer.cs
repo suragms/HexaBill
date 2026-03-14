@@ -70,6 +70,9 @@ namespace HexaBill.Api.Shared.Extensions
                     ("ALTER TABLE Sales ADD COLUMN IsFinalized INTEGER DEFAULT 1", "Sales", "IsFinalized"),
                     ("ALTER TABLE Sales ADD COLUMN IsZeroInvoice INTEGER DEFAULT 0", "Sales", "IsZeroInvoice"),
                     ("ALTER TABLE Sales ADD COLUMN VatScenario TEXT NULL", "Sales", "VatScenario"),
+                    ("ALTER TABLE Sales ADD COLUMN RoundOff REAL NOT NULL DEFAULT 0", "Sales", "RoundOff"),
+                    ("ALTER TABLE HeldInvoices ADD COLUMN RoundOff REAL NOT NULL DEFAULT 0", "HeldInvoices", "RoundOff"),
+                    ("ALTER TABLE Payments ADD COLUMN SaleReturnId INTEGER NULL", "Payments", "SaleReturnId"),
                     
                     // ExpenseCategories - TenantId required for user/expense seeding (migration may not have run)
                     ("ALTER TABLE ExpenseCategories ADD COLUMN TenantId INTEGER NULL", "ExpenseCategories", "TenantId"),
@@ -129,6 +132,10 @@ namespace HexaBill.Api.Shared.Extensions
                     // Purchases table - Ensure all columns exist (CRITICAL FIX)
                     ("ALTER TABLE Purchases ADD COLUMN ExternalReference TEXT NULL", "Purchases", "ExternalReference"),
                     ("ALTER TABLE Purchases ADD COLUMN ExpenseCategory TEXT NULL", "Purchases", "ExpenseCategory"),
+                    ("ALTER TABLE Purchases ADD COLUMN AmountPaid REAL NULL", "Purchases", "AmountPaid"),
+                    ("ALTER TABLE Purchases ADD COLUMN PaymentType TEXT NULL", "Purchases", "PaymentType"),
+                    ("ALTER TABLE Purchases ADD COLUMN SupplierId INTEGER NULL", "Purchases", "SupplierId"),
+                    ("ALTER TABLE Purchases ADD COLUMN DueDate TEXT NULL", "Purchases", "DueDate"),
 
                     // Expenses table - Fixes 500 on /api/expenses when columns missing (SQLite)
                     ("ALTER TABLE Expenses ADD COLUMN AttachmentUrl TEXT NULL", "Expenses", "AttachmentUrl"),
@@ -205,6 +212,8 @@ namespace HexaBill.Api.Shared.Extensions
                     ("UPDATE Sales SET IsDeleted = 0 WHERE IsDeleted IS NULL", "Init Sales IsDeleted"),
                     ("UPDATE Sales SET RowVersion = x'' WHERE RowVersion IS NULL", "Init Sales RowVersion"),
                     ("UPDATE Sales SET PaymentStatus = 'Pending' WHERE PaymentStatus IS NULL OR PaymentStatus = ''", "Init Sales PaymentStatus"),
+                    ("UPDATE Sales SET RoundOff = 0 WHERE RoundOff IS NULL", "Init Sales RoundOff"),
+                    ("UPDATE HeldInvoices SET RoundOff = 0 WHERE RoundOff IS NULL", "Init HeldInvoices RoundOff"),
                     
                     // Payments table initialization
                     ("UPDATE Payments SET Mode = 'CASH' WHERE Mode IS NULL OR Mode = ''", "Init Payments Mode"),

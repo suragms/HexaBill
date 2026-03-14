@@ -654,7 +654,16 @@ using (var scope = app.Services.CreateScope())
     }
     else if (ctx.Database.IsSqlite())
     {
-        // CRITICAL: Add User columns and UserSessions BEFORE any requests (fixes "no such column: u.LanguagePreference" on login)
+        // CRITICAL: Add Sales/HeldInvoices RoundOff and Payments.SaleReturnId FIRST (fixes VAT, Sales Ledger, analytics 500s)
+        try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Sales ADD COLUMN RoundOff REAL NOT NULL DEFAULT 0"); } catch { }
+        try { ctx.Database.ExecuteSqlRaw("ALTER TABLE HeldInvoices ADD COLUMN RoundOff REAL NOT NULL DEFAULT 0"); } catch { }
+        try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Payments ADD COLUMN SaleReturnId INTEGER NULL"); } catch { }
+        // Purchases: AmountPaid, PaymentType, SupplierId, DueDate (fixes "Failed to load purchases" / "Failed to retrieve analytic" 500s on SQLite)
+        try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Purchases ADD COLUMN AmountPaid REAL NULL"); } catch { }
+        try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Purchases ADD COLUMN PaymentType TEXT NULL"); } catch { }
+        try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Purchases ADD COLUMN SupplierId INTEGER NULL"); } catch { }
+        try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Purchases ADD COLUMN DueDate TEXT NULL"); } catch { }
+        // User columns and UserSessions (fixes "no such column: u.LanguagePreference" on login)
         try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Users ADD COLUMN SessionVersion INTEGER NOT NULL DEFAULT 0"); } catch { }
         try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Users ADD COLUMN ProfilePhotoUrl TEXT NULL"); } catch { }
         try { ctx.Database.ExecuteSqlRaw("ALTER TABLE Users ADD COLUMN LanguagePreference TEXT NULL"); } catch { }

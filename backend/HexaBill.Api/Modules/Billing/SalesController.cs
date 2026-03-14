@@ -339,11 +339,17 @@ namespace HexaBill.Api.Modules.Billing
 
         [HttpGet("{id}/pdf")]
         [Authorize(Roles = "Admin,Owner,Staff")]  // CRITICAL: Require auth - unauthenticated users must not download invoices
-        public async Task<ActionResult> GetInvoicePdf(int id)
+        public async Task<ActionResult> GetInvoicePdf(int id, [FromQuery] string? format = "A4")
         {
             try
             {
-                Console.WriteLine($"\n📄 PDF Request: Getting invoice {id}");
+                // Normalize format: A4, A5, 80mm, 58mm (default A4)
+                var formatNormalized = (format ?? "A4").Trim();
+                if (string.IsNullOrEmpty(formatNormalized)) formatNormalized = "A4";
+                if (!new[] { "A4", "A5", "80mm", "58mm" }.Contains(formatNormalized, StringComparer.OrdinalIgnoreCase))
+                    formatNormalized = "A4";
+
+                Console.WriteLine($"\n📄 PDF Request: Getting invoice {id}, format={formatNormalized}");
                 
                 var tenantId = CurrentTenantId; // CRITICAL: Get from JWT
                 // Validate sale exists first
@@ -358,8 +364,8 @@ namespace HexaBill.Api.Modules.Billing
                     });
                 }
 
-                Console.WriteLine($"✅ PDF Request: Invoice {id} found, generating PDF...");
-                var pdfBytes = await _saleService.GenerateInvoicePdfAsync(id, tenantId);
+                Console.WriteLine($"✅ PDF Request: Invoice {id} found, generating PDF ({formatNormalized})...");
+                var pdfBytes = await _saleService.GenerateInvoicePdfAsync(id, tenantId, formatNormalized);
                 
                 if (pdfBytes == null || pdfBytes.Length == 0)
                 {

@@ -30,7 +30,7 @@ namespace HexaBill.Api.Modules.Billing
         Task<SaleDto> UpdateSaleAsync(int saleId, CreateSaleRequest request, int userId, int tenantId, string? editReason = null, byte[]? expectedRowVersion = null);
         Task<bool> DeleteSaleAsync(int saleId, int userId, int tenantId);
         Task<string> GenerateInvoiceNumberAsync(int tenantId);
-        Task<byte[]> GenerateInvoicePdfAsync(int saleId, int tenantId);
+        Task<byte[]> GenerateInvoicePdfAsync(int saleId, int tenantId, string? format = "A4");
         Task<bool> CanEditInvoiceAsync(int saleId, int userId, string userRole, int tenantId);
         Task<bool> UnlockInvoiceAsync(int saleId, int userId, string unlockReason, int tenantId);
         Task<List<InvoiceVersion>> GetInvoiceVersionsAsync(int saleId, int tenantId);
@@ -2321,11 +2321,15 @@ namespace HexaBill.Api.Modules.Billing
             });
         }
 
-        public async Task<byte[]> GenerateInvoicePdfAsync(int saleId, int tenantId)
+        public async Task<byte[]> GenerateInvoicePdfAsync(int saleId, int tenantId, string? format = "A4")
         {
+            var formatNormalized = string.IsNullOrWhiteSpace(format) ? "A4" : format.Trim();
+            if (!new[] { "A4", "A5", "80mm", "58mm" }.Contains(formatNormalized, StringComparer.OrdinalIgnoreCase))
+                formatNormalized = "A4";
+
             try
             {
-                Console.WriteLine($"\n📄 PDF Generation: Starting for sale {saleId}, tenantId={tenantId}");
+                Console.WriteLine($"\n📄 PDF Generation: Starting for sale {saleId}, tenantId={tenantId}, format={formatNormalized}");
                 
                 // CRITICAL: Build query - super admin (tenantId=0) can access any sale
                 IQueryable<Sale> query = _context.Sales.Where(s => s.Id == saleId);
@@ -2378,8 +2382,8 @@ namespace HexaBill.Api.Modules.Billing
                     }).ToList() ?? new List<SaleItemDto>()
                 };
 
-                Console.WriteLine($"✅ PDF Generation: Calling PdfService...");
-                var pdfBytes = await _pdfService.GenerateInvoicePdfAsync(saleDto);
+                Console.WriteLine($"✅ PDF Generation: Calling PdfService (format={formatNormalized})...");
+                var pdfBytes = await _pdfService.GenerateInvoicePdfAsync(saleDto, formatNormalized);
                 
                 Console.WriteLine($"✅ PDF Generation: SUCCESS! Generated {pdfBytes?.Length ?? 0} bytes");
                 return pdfBytes ?? Array.Empty<byte>();
