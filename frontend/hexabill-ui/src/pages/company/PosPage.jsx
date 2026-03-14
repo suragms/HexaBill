@@ -3129,7 +3129,7 @@ const PosPage = () => {
         </div>
       )}
 
-      {/* Print format selector (A4, A5, 80mm, 58mm) - shown when user clicks Print after save */}
+      {/* Print format selector (A4, A5, 80mm, 58mm) - shown when user clicks Print from success modal (success modal is closed first so this is visible) */}
       {showPrintFormatModal && lastCreatedInvoice && (
         <PrintOptionsModal
           saleId={lastCreatedInvoice.id}
@@ -3169,7 +3169,10 @@ const PosPage = () => {
               <div className="space-y-3">
                 <button
                   type="button"
-                  onClick={() => setShowPrintFormatModal(true)}
+                  onClick={() => {
+                    setShowInvoiceOptionsModal(false)
+                    setShowPrintFormatModal(true)
+                  }}
                   className="w-full flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
                 >
                   <Printer className="h-5 w-5 mr-2" />

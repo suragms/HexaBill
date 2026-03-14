@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { X, Printer, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { salesAPI } from '../services'
@@ -8,32 +8,60 @@ const PrintOptionsModal = ({ saleId, invoiceNo, onClose, onPrint }) => {
   const [copies, setCopies] = useState(1)
   const [printer, setPrinter] = useState('default')
   const [orientation, setOrientation] = useState('portrait')
+  const [printing, setPrinting] = useState(false)
+  const printHandledRef = useRef(false)
 
   const handlePrint = async () => {
+    if (!saleId) {
+      toast.error('Invalid invoice. Cannot print.')
+      return
+    }
+    printHandledRef.current = false
+    setPrinting(true)
     try {
-      // Backend expects format: A4 | A5 | 80mm | 58mm
       const pdfOptions = { format }
       const blob = await salesAPI.getInvoicePdf(saleId, pdfOptions)
-      const blobUrl = URL.createObjectURL(blob)
-      const printWindow = window.open(blobUrl, '_blank')
+      if (!blob || (blob instanceof Blob && blob.size === 0)) {
+        toast.error('PDF could not be generated')
+        setPrinting(false)
+        return
+      }
+      const blobUrl = URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob], { type: 'application/pdf' }))
+      const printWindow = window.open(blobUrl, '_blank', 'noopener,noreferrer')
       if (printWindow) {
         printWindow.onload = () => {
-          setTimeout(() => {
+          if (printHandledRef.current) return
+          printHandledRef.current = true
+          try {
             printWindow.print()
-            URL.revokeObjectURL(blobUrl)
-          }, 250)
+            toast.success('Print dialog opened')
+          } catch (e) {
+            console.error('Print error:', e)
+            toast.error('Could not open print dialog')
+          }
+          setPrinting(false)
+          if (onPrint) onPrint()
+          onClose()
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 3000)
         }
-        toast.success('Invoice opened for printing')
+        setTimeout(() => {
+          if (printHandledRef.current) return
+          printHandledRef.current = true
+          setPrinting(false)
+          toast.success('PDF opened in new tab. Use Ctrl+P to print if needed.')
+          if (onPrint) onPrint()
+          onClose()
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 3000)
+        }, 2500)
       } else {
         URL.revokeObjectURL(blobUrl)
-        toast.error('Please allow pop-ups for this site to print')
+        setPrinting(false)
+        toast.error('Pop-up blocked. Allow pop-ups for this site, or use Download PDF from the previous screen.')
       }
-
-      if (onPrint) onPrint()
-      onClose()
     } catch (error) {
       console.error('Print error:', error)
-      if (!error?._handledByInterceptor) toast.error('Failed to open print dialog')
+      setPrinting(false)
+      if (!error?._handledByInterceptor) toast.error(error?.message || 'Failed to generate PDF')
     }
   }
 
@@ -153,16 +181,27 @@ const PrintOptionsModal = ({ saleId, invoiceNo, onClose, onPrint }) => {
         <div className="flex items-center justify-end p-6 border-t border-gray-200 space-x-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+            disabled={printing}
+            className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handlePrint}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            disabled={printing}
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
           >
-            <Printer className="h-4 w-4 mr-2" />
-            Print
+            {printing ? (
+              <>
+                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                Generating…
+              </>
+            ) : (
+              <>
+                <Printer className="h-4 w-4 mr-2" />
+                Print
+              </>
+            )}
           </button>
         </div>
       </div>
