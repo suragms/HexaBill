@@ -32,7 +32,7 @@ namespace HexaBill.Api.Modules.Reports
 
         public async Task<VatReturnDto> GetVatReturnAsync(int tenantId, int quarter, int year)
         {
-            var (fromDate, toDate) = QuarterToDateRange(quarter, year);
+            var (fromDate, toDate) = QuarterToDateRangeFta(quarter, year);
             var dto = await GetVatReturn201Async(tenantId, fromDate, toDate);
             return new VatReturnDto
             {
@@ -431,29 +431,69 @@ namespace HexaBill.Api.Modules.Reports
             return s.VatTotal > 0;
         }
 
-        /// <summary>Compute period label and due date from calendar (inclusive) dates. Use this so label is correct regardless of UTC conversion.</summary>
+        /// <summary>Compute period label and due date from calendar (inclusive) dates. Supports both standard and FTA quarters.</summary>
         public static (string label, DateTime due) GetPeriodLabelAndDue(DateTime fromInclusive, DateTime toInclusive)
         {
             var from = fromInclusive.Date;
             var to = toInclusive.Date;
-            var months = (to.Year - from.Year) * 12 + (to.Month - from.Month);
+            var months = (to.Year - from.Year) * 12 + (to.Month - from.Month) + 1;
             if (months <= 1)
             {
                 var label = from.ToString("MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
-                var due = new DateTime(from.Year, from.Month, 1).AddMonths(2).AddDays(27); // e.g. Jan -> 28 Feb
+                var due = new DateTime(from.Year, from.Month, 1).AddMonths(2).AddDays(27);
                 return (label, due);
             }
-            if (months <= 3)
+            if (months <= 4) // quarter (3 months) or slightly more
             {
-                var q = (from.Month - 1) / 3 + 1;
-                var label = $"Q{q}-{from.Year}";
-                var endMonth = from.Month + 2;
-                var year = from.Year;
-                if (endMonth > 12) { endMonth -= 12; year++; }
-                var due = new DateTime(year, endMonth, 28);
-                return (label, due);
+                int q;
+                int labelYear;
+                // FTA quarters: Feb-Apr, May-Jul, Aug-Oct, Nov-Jan (cross-year)
+                if (from.Month == 2 && to.Month == 4)
+                {
+                    q = 1;
+                    labelYear = from.Year;
+                }
+                else if (from.Month == 5 && to.Month == 7)
+                {
+                    q = 2;
+                    labelYear = from.Year;
+                }
+                else if (from.Month == 8 && to.Month == 10)
+                {
+                    q = 3;
+                    labelYear = from.Year;
+                }
+                else if (from.Month == 11 && to.Month == 1 && to.Year == from.Year + 1)
+                {
+                    q = 4;
+                    labelYear = to.Year; // Q4-2026 = Nov 2025 - Jan 2026
+                }
+                else
+                {
+                    // Fallback: standard quarters Jan-Mar, Apr-Jun, Jul-Sep, Oct-Dec
+                    q = (from.Month - 1) / 3 + 1;
+                    labelYear = from.Year;
+                }
+                var label = $"Q{q}-{labelYear}";
+                var due = to.AddMonths(1);
+                var dueDay = Math.Min(28, DateTime.DaysInMonth(due.Year, due.Month));
+                var dueDate = new DateTime(due.Year, due.Month, dueDay);
+                return (label, dueDate);
             }
             return (from.ToString("yyyy", System.Globalization.CultureInfo.InvariantCulture), to.AddMonths(1));
+        }
+
+        /// <summary>FTA quarterly periods: Feb-Apr, May-Jul, Aug-Oct, Nov-Jan. Q4-{year} = Nov (year-1) to Jan (year).</summary>
+        public static (DateTime from, DateTime to) QuarterToDateRangeFta(int quarter, int year)
+        {
+            return quarter switch
+            {
+                1 => (new DateTime(year, 2, 1), new DateTime(year, 4, 30)),
+                2 => (new DateTime(year, 5, 1), new DateTime(year, 7, 31)),
+                3 => (new DateTime(year, 8, 1), new DateTime(year, 10, 31)),
+                4 => (new DateTime(year - 1, 11, 1), new DateTime(year, 1, 31)),
+                _ => QuarterToDateRangeFta(1, year)
+            };
         }
 
         public static (DateTime from, DateTime to) QuarterToDateRange(int quarter, int year)

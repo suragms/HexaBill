@@ -670,42 +670,43 @@ const PosPage = () => {
     }
   }
 
-  /** Quick print with default A4: one-click, opens PDF in new tab and triggers browser/OS print dialog */
-  const handleQuickPrintA4 = async () => {
+  /** One-click print for specified format (A4, A5, 80mm, 58mm). Opens PDF in new tab and triggers print dialog. */
+  const handlePrintFormat = async (format) => {
     if (!lastCreatedInvoice?.id) {
       toast.error('No invoice to print. Save the invoice first.')
       return
     }
+    const toastId = `print-${format}-toast`
     try {
-      toast.loading('Preparing print...', { id: 'quick-print-toast' })
-      const blob = await salesAPI.getInvoicePdf(lastCreatedInvoice.id, { format: 'A4' })
+      toast.loading(`Preparing ${format}...`, { id: toastId })
+      const blob = await salesAPI.getInvoicePdf(lastCreatedInvoice.id, { format })
       const blobUrl = URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob], { type: 'application/pdf' }))
       const printWindow = window.open(blobUrl, '_blank', 'noopener,noreferrer')
       if (printWindow) {
         printWindow.onload = () => {
           try {
             printWindow.print()
-            toast.dismiss('quick-print-toast')
+            toast.dismiss(toastId)
             toast.success('Print dialog opened')
           } catch (e) {
-            toast.dismiss('quick-print-toast')
+            toast.dismiss(toastId)
             toast.error('Could not open print dialog')
           }
           setTimeout(() => URL.revokeObjectURL(blobUrl), 3000)
         }
         setTimeout(() => {
-          toast.dismiss('quick-print-toast')
+          toast.dismiss(toastId)
           toast.success('PDF opened. Use Ctrl+P to print if needed.')
           setTimeout(() => URL.revokeObjectURL(blobUrl), 3000)
         }, 2500)
       } else {
         URL.revokeObjectURL(blobUrl)
-        toast.dismiss('quick-print-toast')
-        toast.error('Pop-up blocked. Allow pop-ups or use "Print" to choose format.')
+        toast.dismiss(toastId)
+        toast.error('Pop-up blocked. Allow pop-ups for this site.')
       }
     } catch (error) {
-      console.error('Quick print error:', error)
-      toast.dismiss('quick-print-toast')
+      console.error('Print error:', error)
+      toast.dismiss(toastId)
       if (!error?._handledByInterceptor) toast.error(error?.message || 'Failed to prepare PDF')
     }
   }
@@ -3256,29 +3257,22 @@ const PosPage = () => {
               )}
               <p className="text-gray-700 mb-4">What would you like to do with this invoice?</p>
 
-              {/* Action Buttons */}
+              {/* Action Buttons - 4 direct format buttons for one-click print */}
               <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={handleQuickPrintA4}
-                  className="w-full flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
-                  title="Print with default printer (A4)"
-                >
-                  <Printer className="h-5 w-5 mr-2" />
-                  Quick print (A4)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowInvoiceOptionsModal(false)
-                    setShowPrintFormatModal(true)
-                  }}
-                  className="w-full flex items-center justify-center px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors shadow-md border border-blue-600"
-                  title="Choose format: A4, A5, 80mm, 58mm"
-                >
-                  <Printer className="h-5 w-5 mr-2" />
-                  Print (choose format)
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {['A4', 'A5', '80mm', '58mm'].map((fmt) => (
+                    <button
+                      key={fmt}
+                      type="button"
+                      onClick={() => handlePrintFormat(fmt)}
+                      className="inline-flex items-center gap-1 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm"
+                      title={`Print ${fmt}`}
+                    >
+                      <Printer className="h-4 w-4" />
+                      {fmt}
+                    </button>
+                  ))}
+                </div>
 
                 <button
                   onClick={() => handleDownloadPdf(lastCreatedInvoice.id, lastCreatedInvoice.invoiceNo)}

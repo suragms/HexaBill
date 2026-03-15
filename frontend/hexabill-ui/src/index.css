@@ -181,13 +181,15 @@
     visibility: visible;
   }
   .vat-return-print-area {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    max-width: 100%;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
     box-shadow: none;
     border: 1px solid #e5e7eb;
+    opacity: 1 !important;
+    overflow: visible !important;
   }
   .no-print,
   nav,

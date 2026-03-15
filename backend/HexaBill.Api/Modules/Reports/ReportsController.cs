@@ -79,7 +79,7 @@ namespace HexaBill.Api.Modules.Reports
                 }
                 else if (quarter.HasValue && year.HasValue && quarter >= 1 && quarter <= 4)
                 {
-                    var (f, t) = VatReturnReportService.QuarterToDateRange(quarter.Value, year.Value);
+                    var (f, t) = VatReturnReportService.QuarterToDateRangeFta(quarter.Value, year.Value);
                     fromDate = new DateTime(f.Year, f.Month, f.Day, 0, 0, 0, DateTimeKind.Unspecified).ToUtcKind();
                     toDate = new DateTime(t.Year, t.Month, t.Day, 0, 0, 0, DateTimeKind.Unspecified).AddDays(1).ToUtcKind();
                 }
@@ -98,7 +98,7 @@ namespace HexaBill.Api.Modules.Reports
                 }
                 else if (quarter.HasValue && year.HasValue && quarter >= 1 && quarter <= 4)
                 {
-                    var (f, t) = VatReturnReportService.QuarterToDateRange(quarter.Value, year.Value);
+                    var (f, t) = VatReturnReportService.QuarterToDateRangeFta(quarter.Value, year.Value);
                     calendarFrom = f;
                     calendarTo = t;
                 }
@@ -280,8 +280,7 @@ namespace HexaBill.Api.Modules.Reports
         }
 
         /// <summary>
-        /// Valid VAT periods: either an exact calendar quarter (3 months, starting on 1st and ending on last day)
-        /// or a full calendar year (Jan 1 to Dec 31). Custom odd ranges are rejected to avoid accidentally mixing periods.
+        /// Valid VAT periods: FTA quarters (Feb-Apr, May-Jul, Aug-Oct, Nov-Jan), standard quarters (Jan-Mar, etc.), or full calendar year.
         /// </summary>
         private static bool IsSupportedVatPeriod(DateTime from, DateTime to, out string error)
         {
@@ -300,7 +299,20 @@ namespace HexaBill.Api.Modules.Reports
                 return true;
             }
 
-            // Exact quarter: 3 full months within same calendar year
+            // FTA quarters: Feb-Apr, May-Jul, Aug-Oct, Nov-Jan (cross-year)
+            if (start.Day == 1 && end.Day == DateTime.DaysInMonth(end.Year, end.Month))
+            {
+                if (start.Month == 2 && end.Month == 4 && start.Year == end.Year)
+                    return true;
+                if (start.Month == 5 && end.Month == 7 && start.Year == end.Year)
+                    return true;
+                if (start.Month == 8 && end.Month == 10 && start.Year == end.Year)
+                    return true;
+                if (start.Month == 11 && end.Month == 1 && end.Year == start.Year + 1)
+                    return true;
+            }
+
+            // Standard quarters: Jan-Mar, Apr-Jun, Jul-Sep, Oct-Dec (same year)
             if (start.Day == 1 && end.Day == DateTime.DaysInMonth(end.Year, end.Month) && start.Year == end.Year)
             {
                 var monthsInclusive = (end.Year - start.Year) * 12 + (end.Month - start.Month) + 1;
@@ -310,7 +322,7 @@ namespace HexaBill.Api.Modules.Reports
                 }
             }
 
-            error = "VAT period must be a full quarter (Q1–Q4) or a full calendar year (01-Jan to 31-Dec).";
+            error = "VAT period must be a full quarter (Q1–Q4: Feb-Apr, May-Jul, Aug-Oct, Nov-Jan) or a full calendar year (01-Jan to 31-Dec).";
             return false;
         }
 

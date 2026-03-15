@@ -26,45 +26,61 @@ function toLocalDateStr(d) {
   return `${y}-${m}-${day}`
 }
 
-function quarterToRange(quarter, year) {
-  const startMonth = (quarter - 1) * 3
-  const from = new Date(year, startMonth, 1)
-  const to = new Date(year, startMonth + 3, 0)
-  return {
-    from: toLocalDateStr(from),
-    to: toLocalDateStr(to)
+/** FTA quarterly periods: Feb-Apr (Q1), May-Jul (Q2), Aug-Oct (Q3), Nov-Jan (Q4 cross-year). Q4-{year} = Nov (year-1) to Jan (year). */
+function quarterToRangeFta(quarter, year) {
+  const ranges = {
+    1: { from: [year, 1, 1], to: [year, 3, 30] },       // Feb 1, Apr 30 (JS months 0-based)
+    2: { from: [year, 4, 1], to: [year, 6, 31] },       // May 1, Jul 31
+    3: { from: [year, 7, 1], to: [year, 9, 31] },       // Aug 1, Oct 31
+    4: { from: [year - 1, 10, 1], to: [year, 0, 31] }   // Nov 1 (prev year), Jan 31
   }
+  const r = ranges[quarter] || ranges[1]
+  const from = new Date(r.from[0], r.from[1], r.from[2])
+  const to = new Date(r.to[0], r.to[1], r.to[2])
+  return { from: toLocalDateStr(from), to: toLocalDateStr(to) }
 }
 
-/** Mirrors backend: only full quarter (Q1–Q4) or full calendar year is valid. */
+/** Get FTA quarter (1-4) and label year for current month. Jan -> Q4; Feb-Apr -> Q1; May-Jul -> Q2; Aug-Oct -> Q3; Nov-Dec -> Q4. */
+function getFtaQuarterForMonth(month, year) {
+  const m = month + 1 // 1-12
+  if (m === 1) return { quarter: 4, year } // Jan = Q4 of same year (Nov prev - Jan)
+  if (m >= 2 && m <= 4) return { quarter: 1, year }
+  if (m >= 5 && m <= 7) return { quarter: 2, year }
+  if (m >= 8 && m <= 10) return { quarter: 3, year }
+  return { quarter: 4, year: year + 1 } // Nov, Dec = Q4 of next year (Nov-Dec this year, Jan next)
+}
+
+/** Mirrors backend: FTA quarters (Feb-Apr, May-Jul, Aug-Oct, Nov-Jan), standard quarters, or full calendar year. */
 function isSupportedVatPeriod(fromStr, toStr) {
   if (!fromStr || !toStr || !/^\d{4}-\d{2}-\d{2}$/.test(fromStr) || !/^\d{4}-\d{2}-\d{2}$/.test(toStr)) return false
   const from = new Date(fromStr)
   const to = new Date(toStr)
   if (isNaN(from.getTime()) || isNaN(to.getTime()) || from > to) return false
-  const y = from.getFullYear()
   const mFrom = from.getMonth() + 1
   const dFrom = from.getDate()
   const mTo = to.getMonth() + 1
   const dTo = to.getDate()
   const lastDayOfTo = new Date(to.getFullYear(), to.getMonth() + 1, 0).getDate()
+  const yFrom = from.getFullYear()
+  const yTo = to.getFullYear()
   // Full calendar year
-  if (dFrom === 1 && mFrom === 1 && mTo === 12 && dTo === lastDayOfTo && from.getFullYear() === to.getFullYear()) return true
-  // Exact quarter: 3 months, same year, start on 1 Jan/Apr/Jul/Oct
-  if (from.getFullYear() !== to.getFullYear()) return false
-  if (dFrom !== 1 || dTo !== lastDayOfTo) return false
-  const monthsInclusive = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1
+  if (dFrom === 1 && mFrom === 1 && mTo === 12 && dTo === lastDayOfTo && yFrom === yTo) return true
+  // FTA quarters: Feb-Apr, May-Jul, Aug-Oct, Nov-Jan (cross-year)
+  if (dFrom === 1 && dTo === lastDayOfTo) {
+    if (mFrom === 2 && mTo === 4 && yFrom === yTo) return true
+    if (mFrom === 5 && mTo === 7 && yFrom === yTo) return true
+    if (mFrom === 8 && mTo === 10 && yFrom === yTo) return true
+    if (mFrom === 11 && mTo === 1 && yTo === yFrom + 1) return true
+  }
+  // Standard quarters: Jan-Mar, Apr-Jun, Jul-Sep, Oct-Dec (same year)
+  if (dFrom !== 1 || dTo !== lastDayOfTo || yFrom !== yTo) return false
+  const monthsInclusive = (yTo - yFrom) * 12 + (mTo - mFrom) + 1
   if (monthsInclusive !== 3) return false
-  const startMonth = from.getMonth() + 1
-  return [1, 4, 7, 10].includes(startMonth)
+  return [1, 4, 7, 10].includes(mFrom)
 }
 
 /**
- * If the range is not valid but can be unambiguously mapped to a quarter or full year,
- * return the corrected boundaries. Handles:
- * - Same-year quarter (e.g. 30-09–30-12 → Q4 01-10–31-12)
- * - Cross-year "almost Q1" (e.g. 31-12-2025–30-03-2026 → Q1 2026: 01-01–31-03)
- * - Same-year full year (≥300 days → 01-01–31-12)
+ * Snap invalid range to nearest supported FTA quarter or full year.
  * Returns null if we should not snap.
  */
 function snapToSupportedVatPeriod(fromStr, toStr) {
@@ -76,9 +92,14 @@ function snapToSupportedVatPeriod(fromStr, toStr) {
   const fromYear = from.getFullYear()
   const toYear = to.getFullYear()
 
+  // Cross-year: likely FTA Q4 (Nov-Jan)
   if (fromYear !== toYear) {
-    if (toYear === fromYear + 1 && from.getMonth() === 11 && to.getMonth() <= 2 && daysDiff >= 1 && daysDiff <= 93) {
-      return { from: `${toYear}-01-01`, to: `${toYear}-03-31` }
+    if (toYear === fromYear + 1 && from.getMonth() === 10 && to.getMonth() === 0 && daysDiff >= 60 && daysDiff <= 95) {
+      return { from: `${fromYear}-11-01`, to: `${toYear}-01-31` }
+    }
+    // Old logic: Dec-Mar snap to Q1 (Jan-Mar) - keep for backward compat
+    if (toYear === fromYear + 1 && from.getMonth() === 11 && to.getMonth() <= 2 && daysDiff <= 93) {
+      return quarterToRangeFta(1, toYear) // FTA Q1 = Feb-Apr
     }
     return null
   }
@@ -86,15 +107,14 @@ function snapToSupportedVatPeriod(fromStr, toStr) {
   const y = fromYear
   if (daysDiff >= 300) return { from: `${y}-01-01`, to: `${y}-12-31` }
   if (daysDiff > 93) return null
+  // Same year: snap to FTA quarter containing the range end
   const toMonth = to.getMonth() + 1
-  const quarter = Math.ceil(toMonth / 3)
-  const startMonth = (quarter - 1) * 3
-  const snappedFrom = new Date(y, startMonth, 1)
-  const snappedTo = new Date(y, startMonth + 3, 0)
-  return {
-    from: toLocalDateStr(snappedFrom),
-    to: toLocalDateStr(snappedTo)
-  }
+  let q = 1
+  if (toMonth >= 2 && toMonth <= 4) q = 1
+  else if (toMonth >= 5 && toMonth <= 7) q = 2
+  else if (toMonth >= 8 && toMonth <= 10) q = 3
+  else if (toMonth === 11 || toMonth === 12 || toMonth === 1) q = 4
+  return quarterToRangeFta(q, toMonth === 1 ? y : (toMonth >= 11 ? y + 1 : y))
 }
 
 const VatReturnPage = () => {
@@ -102,20 +122,20 @@ const VatReturnPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const now = new Date()
+  const { quarter: initQ, year: initY } = getFtaQuarterForMonth(now.getMonth(), now.getFullYear())
+  const initRange = quarterToRangeFta(initQ, initY)
   const [fromDate, setFromDate] = useState(() => {
     const from = searchParams.get('from')
     if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) return from
-    const q = Math.ceil((now.getMonth() + 1) / 3)
-    return quarterToRange(q, now.getFullYear()).from
+    return initRange.from
   })
   const [toDate, setToDate] = useState(() => {
     const to = searchParams.get('to')
     if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) return to
-    const q = Math.ceil((now.getMonth() + 1) / 3)
-    return quarterToRange(q, now.getFullYear()).to
+    return initRange.to
   })
-  const [quarter, setQuarter] = useState(Math.ceil((now.getMonth() + 1) / 3))
-  const [year, setYear] = useState(now.getFullYear())
+  const [quarter, setQuarter] = useState(initQ)
+  const [year, setYear] = useState(initY)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null) // null | 'access' | { message: string }
   const [vatReturn, setVatReturn] = useState(null)
@@ -154,13 +174,19 @@ const VatReturnPage = () => {
         toFinal = snap.to
         setFromDate(snap.from)
         setToDate(snap.to)
-        setQuarter(Math.ceil((new Date(snap.from).getMonth() + 1) / 3))
-        setYear(new Date(snap.from).getFullYear())
+        const snapFrom = new Date(snap.from)
+        const snapTo = new Date(snap.to)
+        const mFrom = snapFrom.getMonth() + 1
+        const mTo = snapTo.getMonth() + 1
+        const snapQ = (mFrom === 2 && mTo === 4) ? 1 : (mFrom === 5 && mTo === 7) ? 2 : (mFrom === 8 && mTo === 10) ? 3 : (mFrom === 11 && mTo === 1) ? 4 : 1
+        const snapY = snapQ === 4 ? snapTo.getFullYear() : snapFrom.getFullYear()
+        setQuarter(snapQ)
+        setYear(snapY)
         setSearchParams({ from: snap.from, to: snap.to })
         toast.success(`Adjusted to full quarter: ${snap.from} to ${snap.to}`)
       } else {
         setLoadError({
-          message: 'VAT period must be a full quarter (Q1–Q4) or a full calendar year (01-Jan to 31-Dec).',
+          message: 'VAT period must be a full quarter (Q1–Q4: Feb-Apr, May-Jul, Aug-Oct, Nov-Jan) or a full calendar year (01-Jan to 31-Dec).',
           status: 400,
           url: null
         })
@@ -244,14 +270,17 @@ const VatReturnPage = () => {
       if (snap) {
         setFromDate(snap.from)
         setToDate(snap.to)
-        setQuarter(Math.ceil((new Date(snap.from).getMonth() + 1) / 3))
-        setYear(new Date(snap.from).getFullYear())
+        const snapFrom = new Date(snap.from)
+        const snapTo = new Date(snap.to)
+        const m = snapFrom.getMonth() + 1
+        const snapQ = m === 2 ? 1 : m === 5 ? 2 : m === 8 ? 3 : m === 11 ? 4 : 1
+        setQuarter(snapQ)
+        setYear(snapQ === 4 ? snapTo.getFullYear() : snapFrom.getFullYear())
         setSearchParams({ from: snap.from, to: snap.to })
         fetchVatReturn(snap.from, snap.to)
       } else {
-        const q = Math.ceil((now.getMonth() + 1) / 3)
-        const y = now.getFullYear()
-        const { from: f, to: t } = quarterToRange(q, y)
+        const { quarter: q, year: y } = getFtaQuarterForMonth(now.getMonth(), now.getFullYear())
+        const { from: f, to: t } = quarterToRangeFta(q, y)
         setFromDate(f)
         setToDate(t)
         setQuarter(q)
@@ -284,7 +313,7 @@ const VatReturnPage = () => {
   const handlePeriodPreset = (preset) => {
     if (preset.startsWith('Q')) {
       const q = parseInt(preset.slice(1), 10)
-      const { from, to } = quarterToRange(q, year)
+      const { from, to } = quarterToRangeFta(q, year)
       setFromDate(from)
       setToDate(to)
       setQuarter(q)
@@ -406,15 +435,20 @@ const VatReturnPage = () => {
   // Derive period label from dates when it's a full quarter - prevents wrong API label (e.g. Q4-2025 for Jan-Mar 2026)
   const derivedPeriodLabel = (() => {
     if (!fromDate || !toDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) return null
-    const y = parseInt(fromDate.slice(0, 4), 10)
+    const yFrom = parseInt(fromDate.slice(0, 4), 10)
     const mFrom = parseInt(fromDate.slice(5, 7), 10)
     const dFrom = parseInt(fromDate.slice(8, 10), 10)
     const mTo = parseInt(toDate.slice(5, 7), 10)
     const dTo = parseInt(toDate.slice(8, 10), 10)
-    const lastDay = new Date(y, mTo, 0).getDate()
-    if (dFrom === 1 && mTo - mFrom === 2 && dTo === lastDay && [1, 4, 7, 10].includes(mFrom))
-      return `Q${Math.ceil(mFrom / 3)}-${y}`
-    if (mFrom === 1 && dFrom === 1 && mTo === 12 && dTo === 31) return `${y}`
+    const yTo = parseInt(toDate.slice(0, 4), 10)
+    const lastDay = new Date(yTo, mTo, 0).getDate()
+    if (dFrom === 1 && dTo === lastDay) {
+      if (mFrom === 2 && mTo === 4) return `Q1-${yFrom}`
+      if (mFrom === 5 && mTo === 7) return `Q2-${yFrom}`
+      if (mFrom === 8 && mTo === 10) return `Q3-${yFrom}`
+      if (mFrom === 11 && mTo === 1) return `Q4-${yTo}`
+    }
+    if (mFrom === 1 && dFrom === 1 && mTo === 12 && dTo === 31) return `${yFrom}`
     return null
   })()
   const periodLabel = derivedPeriodLabel || v?.periodLabel || (fromDate && toDate ? `${fromDate} to ${toDate}` : `Q${quarter} ${year}`)
@@ -423,10 +457,12 @@ const VatReturnPage = () => {
   // Which preset (if any) matches current from/to — for button highlight
   const activePreset = (() => {
     if (!fromDate || !toDate || !isSupportedVatPeriod(fromDate, toDate)) return null
-    const y = new Date(fromDate).getFullYear()
-    if (fromDate === `${y}-01-01` && toDate === `${y}-12-31`) return 'thisYear'
+    const yFrom = parseInt(fromDate.slice(0, 4), 10)
+    const yTo = parseInt(toDate.slice(0, 4), 10)
+    if (fromDate === `${yFrom}-01-01` && toDate === `${yFrom}-12-31`) return 'thisYear'
     for (let q = 1; q <= 4; q++) {
-      const { from, to } = quarterToRange(q, y)
+      const y = q === 4 ? yTo : yFrom
+      const { from, to } = quarterToRangeFta(q, y)
       if (from === fromDate && to === toDate) return `Q${q}`
     }
     return null
@@ -523,7 +559,7 @@ const VatReturnPage = () => {
           </select>
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Use Q1–Q4 or <strong>This Year</strong> for FTA returns. If all values show 0.00, try <strong>This Year</strong> or the quarter when you had sales/purchases. Custom range must be a full quarter or full year (e.g. 2025-01-01 to 2025-12-31).
+          Use Q1–Q4 (Feb-Apr, May-Jul, Aug-Oct, Nov-Jan) or <strong>This Year</strong> for FTA returns. If all values show 0.00, try the suggested period above or the quarter when you had sales/purchases. Custom range must be a full quarter or full year (e.g. 2025-11-01 to 2026-01-31 for Q4).
         </p>
         {loadError && (
           <p className="mt-3 text-sm text-red-600">
@@ -811,14 +847,42 @@ const VatReturnPage = () => {
               <p className="font-medium">Total Sales is 0.00 for this period ({fromDate} – {toDate}).</p>
               <p className="mt-1 text-amber-700">VAT only includes invoices whose <strong>invoice date</strong> falls in this range. If your dashboard shows sales for other dates, pick a period that includes those dates.</p>
               {issues.some(i => (i.message || '').toLowerCase().includes('outside')) && (() => {
-                // Parse warning messages for "YYYY-MM-DD" to suggest the correct year (e.g. 2025-10-25 → 2025)
                 const dateMatch = issues.find(i => (i.message || '').match(/\d{4}-\d{2}-\d{2}/))
-                const suggestedYear = dateMatch ? parseInt((dateMatch.message || '').match(/(\d{4})-\d{2}-\d{2}/)?.[1] || '', 10) : null
-                const y = (Number.isInteger(suggestedYear) && suggestedYear >= 2020 && suggestedYear <= 2030) ? suggestedYear : (year || new Date().getFullYear())
+                const fullMatch = dateMatch?.message?.match(/(\d{4})-(\d{2})-(\d{2})/)
+                const invYear = fullMatch ? parseInt(fullMatch[1], 10) : null
+                const invMonth = fullMatch ? parseInt(fullMatch[2], 10) : null
+                const y = (Number.isInteger(invYear) && invYear >= 2020 && invYear <= 2030) ? invYear : (year || new Date().getFullYear())
+                // Infer FTA quarter from invoice month: Feb-Apr=Q1, May-Jul=Q2, Aug-Oct=Q3, Nov-Jan=Q4
+                let ftaQ = null
+                let ftaY = y
+                if (Number.isInteger(invMonth) && invMonth >= 1 && invMonth <= 12) {
+                  if (invMonth >= 2 && invMonth <= 4) { ftaQ = 1; ftaY = invYear }
+                  else if (invMonth >= 5 && invMonth <= 7) { ftaQ = 2; ftaY = invYear }
+                  else if (invMonth >= 8 && invMonth <= 10) { ftaQ = 3; ftaY = invYear }
+                  else if (invMonth === 11 || invMonth === 12) { ftaQ = 4; ftaY = invYear + 1 }
+                  else if (invMonth === 1) { ftaQ = 4; ftaY = invYear }
+                }
+                const ftaRange = ftaQ ? quarterToRangeFta(ftaQ, ftaY) : null
                 return (
                   <>
-                    <p className="mt-2 text-amber-700">To include those invoices, choose a period that contains their dates (e.g. This Year {y}).</p>
-                    <p className="mt-2">
+                    <p className="mt-2 text-amber-700">To include those invoices, choose a period that contains their dates.</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {ftaRange && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFromDate(ftaRange.from)
+                            setToDate(ftaRange.to)
+                            setQuarter(ftaQ)
+                            setYear(ftaY)
+                            setSearchParams({ from: ftaRange.from, to: ftaRange.to })
+                            fetchVatReturn(ftaRange.from, ftaRange.to)
+                          }}
+                          className="text-amber-800 font-semibold underline hover:no-underline"
+                        >
+                          Try: FTA Q{ftaQ} {ftaY} ({ftaRange.from} – {ftaRange.to})
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {
@@ -832,9 +896,9 @@ const VatReturnPage = () => {
                         }}
                         className="text-amber-800 font-semibold underline hover:no-underline"
                       >
-                        Suggest period: This Year ({y})
+                        Or: This Year ({y})
                       </button>
-                    </p>
+                    </div>
                   </>
                 )
               })()}
@@ -886,78 +950,78 @@ const VatReturnPage = () => {
             </nav>
           </div>
 
-          {/* Overview tab – simple FTA-style summary only */}
-          {activeTab === 'overview' && (
-            <div className="mt-4 vat-return-print-area bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <div className="p-4">
-                <h2 className="text-lg font-semibold text-gray-900 mb-1">VAT Return Summary</h2>
-                <p className="text-xs text-gray-500 mb-4">Period: {periodLabel} ({fromDate} – {toDate})</p>
-                {!outputLines.length && !inputLines.length && !creditNoteLines.length && (
-                  <p className="text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4 mb-4">No data for this period.</p>
-                )}
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm border border-gray-200 rounded-lg">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">S#</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">Description</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">Amount (AED)</th>
-                        <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">VAT (AED)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      <tr>
-                        <td className="px-3 py-2 font-medium">1</td>
-                        <td className="px-3 py-2 text-gray-700">Total Sales</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox1a)}</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox1b)}</td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-2 font-medium">2</td>
-                        <td className="px-3 py-2 text-gray-700">Total Purchase and Expense (net)</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(totalInputNet || totalPurchasesNet + totalExpensesNet)}</td>
-                        <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox12)}</td>
-                      </tr>
-                      <tr className={displayBox13a > 0 ? 'bg-red-50' : 'bg-green-50'}>
-                        <td className="px-3 py-2 font-medium">3</td>
-                        <td className="px-3 py-2 font-medium">Net VAT to Pay / Refundable</td>
-                        <td className="px-3 py-2 text-right font-medium" colSpan="2">
-                          <span className={displayBox13a > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
-                            {displayBox13a > 0 ? formatCurrency(displayBox13a) : formatCurrency(displayBox13b)}
-                            {displayBox13a > 0 ? ' (Payable)' : ' (Refundable)'}
-                          </span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mt-2 p-2 rounded bg-gray-50 border border-gray-200 text-xs text-gray-700">
-                  <p className="font-medium text-gray-800">Overview totals are correct.</p>
-                  <p className="mt-1">Net VAT to Pay = Sales VAT (Box 1b) − Input VAT (Box 12: purchases + claimable expenses). If Expense VAT shows 0, only expenses marked <strong>Tax claimable (ITC)</strong> on the Expenses page with VAT in this period are included. After adding or editing expenses, click <strong>Refresh</strong> or <strong>Recalculate</strong> to update.</p>
-                </div>
-                {(v.petroleumExcluded ?? 0) > 0 && (
-                  <p className="mt-3 text-xs text-amber-700">Petroleum excluded: {formatCurrency(v.petroleumExcluded)}</p>
-                )}
+          {/* VAT Return Summary – always rendered for print from any tab; visible in flow when Overview active */}
+          <div
+            className={`vat-return-print-area bg-white rounded-lg border border-gray-200 overflow-hidden ${activeTab !== 'overview' ? 'fixed -left-[9999px] w-[210mm] overflow-hidden opacity-0 pointer-events-none' : 'mt-4'}`}
+            aria-hidden={activeTab !== 'overview'}
+          >
+            <div className="p-4">
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">VAT Return Summary</h2>
+              <p className="text-xs text-gray-500 mb-4">Period: {periodLabel} ({fromDate} – {toDate})</p>
+              {!outputLines.length && !inputLines.length && !creditNoteLines.length && (
+                <p className="text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4 mb-4">No data for this period.</p>
+              )}
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm border border-gray-200 rounded-lg">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">S#</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 border-b border-gray-200">Description</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">Amount (AED)</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-700 border-b border-gray-200">VAT (AED)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    <tr>
+                      <td className="px-3 py-2 font-medium">1</td>
+                      <td className="px-3 py-2 text-gray-700">Total Sales</td>
+                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox1a)}</td>
+                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox1b)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 font-medium">2</td>
+                      <td className="px-3 py-2 text-gray-700">Total Purchase and Expense (net)</td>
+                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(totalInputNet || totalPurchasesNet + totalExpensesNet)}</td>
+                      <td className="px-3 py-2 text-right font-medium">{formatCurrency(displayBox12)}</td>
+                    </tr>
+                    <tr className={displayBox13a > 0 ? 'bg-red-50' : 'bg-green-50'}>
+                      <td className="px-3 py-2 font-medium">3</td>
+                      <td className="px-3 py-2 font-medium">Net VAT to Pay / Refundable</td>
+                      <td className="px-3 py-2 text-right font-medium" colSpan="2">
+                        <span className={displayBox13a > 0 ? 'text-red-700 font-bold' : 'text-green-700 font-bold'}>
+                          {displayBox13a > 0 ? formatCurrency(displayBox13a) : formatCurrency(displayBox13b)}
+                          {displayBox13a > 0 ? ' (Payable)' : ' (Refundable)'}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-              {/* Footer bar: Amount Due to FTA / Refund from FTA + filing deadline */}
-              <div className={`border-t border-gray-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 ${displayBox13a > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-                <div>
-                  <p className="text-sm font-medium text-gray-700">{displayBox13a > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${displayBox13a > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                    {displayBox13a > 0 ? formatCurrency(displayBox13a) : formatCurrency(displayBox13b)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-medium text-gray-700">Filing deadline</p>
-                  <p className="text-lg font-semibold text-amber-900 mt-0.5">
-                    {v.dueDate ? new Date(v.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                  </p>
-                  {daysUntilDue != null && daysUntilDue <= 0 && <p className="text-xs font-medium text-red-600">Overdue</p>}
-                  {daysUntilDue != null && daysUntilDue > 0 && <p className="text-xs text-gray-500">{daysUntilDue} days left</p>}
-                </div>
+              <div className="mt-2 p-2 rounded bg-gray-50 border border-gray-200 text-xs text-gray-700">
+                <p className="font-medium text-gray-800">Overview totals are correct.</p>
+                <p className="mt-1">Net VAT to Pay = Sales VAT (Box 1b) − Input VAT (Box 12: purchases + claimable expenses). If Expense VAT shows 0, only expenses marked <strong>Tax claimable (ITC)</strong> on the Expenses page with VAT in this period are included. After adding or editing expenses, click <strong>Refresh</strong> or <strong>Recalculate</strong> to update.</p>
+              </div>
+              {(v?.petroleumExcluded ?? 0) > 0 && (
+                <p className="mt-3 text-xs text-amber-700">Petroleum excluded: {formatCurrency(v.petroleumExcluded)}</p>
+              )}
+            </div>
+            <div className={`border-t border-gray-200 px-4 py-4 flex flex-wrap items-center justify-between gap-4 ${displayBox13a > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+              <div>
+                <p className="text-sm font-medium text-gray-700">{displayBox13a > 0 ? 'Amount Due to FTA' : 'Refund from FTA'}</p>
+                <p className={`text-2xl font-bold mt-0.5 ${displayBox13a > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                  {displayBox13a > 0 ? formatCurrency(displayBox13a) : formatCurrency(displayBox13b)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-700">Filing deadline</p>
+                <p className="text-lg font-semibold text-amber-900 mt-0.5">
+                  {v?.dueDate ? new Date(v.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                </p>
+                {daysUntilDue != null && daysUntilDue <= 0 && <p className="text-xs font-medium text-red-600">Overdue</p>}
+                {daysUntilDue != null && daysUntilDue > 0 && <p className="text-xs text-gray-500">{daysUntilDue} days left</p>}
               </div>
             </div>
-          )}
+          </div>
 
           {/* Transactions-related tabs – simple tables, no dashboards */}
           {activeTab === 'transactions' && (
