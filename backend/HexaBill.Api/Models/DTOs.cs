@@ -1648,6 +1648,10 @@ namespace HexaBill.Api.Models
         public decimal Box13b { get; set; }
         public decimal PetroleumExcluded { get; set; }
         public int TransactionCount { get; set; }
+        /// <summary>Purchases in period (for diagnostic when Box12 is 0).</summary>
+        public int PurchaseCountInPeriod { get; set; }
+        /// <summary>Approved expenses in period (for diagnostic when Box12 is 0).</summary>
+        public int ExpenseCountInPeriod { get; set; }
         public List<VatReturnOutputLineDto> OutputLines { get; set; } = new();
         public List<VatReturnInputLineDto> InputLines { get; set; } = new();
         public List<VatReturnCreditNoteLineDto> CreditNoteLines { get; set; } = new();

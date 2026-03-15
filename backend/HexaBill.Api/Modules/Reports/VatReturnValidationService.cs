@@ -52,6 +52,26 @@ namespace HexaBill.Api.Modules.Reports
             var fromUtc = from.ToUtcKind();
             var toEnd = to.Date.AddDays(1).ToUtcKind();
 
+            // V-PURCH-EXP-ZERO: Purchases/expenses exist in period but Box12 (Input VAT) is 0 — guide user
+            if (precomputed != null && precomputed.Box12 == 0)
+            {
+                var pc = precomputed.PurchaseCountInPeriod;
+                var ec = precomputed.ExpenseCountInPeriod;
+                if (pc > 0 || ec > 0)
+                {
+                    var parts = new List<string>();
+                    if (pc > 0) parts.Add($"{pc} purchase(s)");
+                    if (ec > 0) parts.Add($"{ec} expense(s)");
+                    issues.Add(new ValidationIssueDto
+                    {
+                        RuleId = "V-PURCH-EXP-ZERO",
+                        Severity = "Warning",
+                        Message = $"Total Purchase and Expense VAT shows 0.00 but you have {string.Join(" and ", parts)} in this period. Only purchases with Tax claimable = Yes and VAT > 0, and expenses with Tax claimable (ITC) = Yes and VAT in this period are included. Check the Purchases and Expenses pages.",
+                        EntityRef = "VATReturn:Input"
+                    });
+                }
+            }
+
             // V-PERIOD-DATE: ensure all included sales fall within the selected VAT period
             var outOfRangeSales = await _context.Sales
                 .Where(s => (s.TenantId != null ? s.TenantId == tenantId : s.OwnerId == tenantId)

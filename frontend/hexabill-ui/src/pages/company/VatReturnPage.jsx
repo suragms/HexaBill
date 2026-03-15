@@ -303,6 +303,15 @@ const VatReturnPage = () => {
     }
   }, [searchParams.get('from'), searchParams.get('to')])
 
+  // Sync year dropdown when fromDate/toDate represent "This Year" (e.g. 2025-01-01 to 2025-12-31)
+  useEffect(() => {
+    if (!fromDate || !toDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) return
+    const y = parseInt(fromDate.slice(0, 4), 10)
+    if (fromDate === `${y}-01-01` && toDate === `${y}-12-31`) {
+      setYear(y)
+    }
+  }, [fromDate, toDate])
+
   // Refresh when sales, purchases, or expenses are updated from other pages
   useEffect(() => {
     const handler = () => { if (fromDate && toDate) fetchVatReturn(fromDate, toDate) }

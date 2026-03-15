@@ -220,11 +220,14 @@ namespace HexaBill.Api.Modules.Reports
             box1a = Math.Max(0, box1a - returnsNet);
             box1b = Math.Max(0, box1b - returnsVat);
 
-            // Box 4: Reverse charge base (purchases)
+            // Box 4: Reverse charge base (purchases) - use calendar date comparison to avoid timezone edge cases
+            var fromDateOnly = DateOnly.FromDateTime(from);
+            var toDateOnly = DateOnly.FromDateTime(to.AddDays(-1));
             var purchasesInPeriod = await _context.Purchases
                 .Include(p => p.Supplier)
                 .Where(p => (p.TenantId != null ? p.TenantId == tenantId : p.OwnerId == tenantId)
-                    && p.PurchaseDate >= from && p.PurchaseDate < to)
+                    && DateOnly.FromDateTime(p.PurchaseDate) >= fromDateOnly
+                    && DateOnly.FromDateTime(p.PurchaseDate) <= toDateOnly)
                 .ToListAsync();
 
             decimal box4 = 0, box9b = 0, box10 = 0;
@@ -268,12 +271,13 @@ namespace HexaBill.Api.Modules.Reports
                 }
             }
 
-            // Expenses: Box 9b (claimable, non-petroleum) and PetroleumExcluded
+            // Expenses: Box 9b (claimable, non-petroleum) and PetroleumExcluded - use calendar date comparison
             var expensesInPeriod = await _context.Expenses
                 .Include(e => e.Category)
                 .Where(e => (e.TenantId != null ? e.TenantId == tenantId : e.OwnerId == tenantId)
                     && e.Status == ExpenseStatus.Approved
-                    && e.Date >= from && e.Date < to)
+                    && DateOnly.FromDateTime(e.Date) >= fromDateOnly
+                    && DateOnly.FromDateTime(e.Date) <= toDateOnly)
                 .ToListAsync();
 
             decimal petroleumExcluded = 0;
@@ -409,6 +413,8 @@ namespace HexaBill.Api.Modules.Reports
                 Box13b = VatCalculator.Round(box13b),
                 PetroleumExcluded = VatCalculator.Round(petroleumExcluded),
                 TransactionCount = txCount,
+                PurchaseCountInPeriod = purchasesInPeriod.Count,
+                ExpenseCountInPeriod = expensesInPeriod.Count,
                 OutputLines = outputLines,
                 InputLines = inputLines,
                 CreditNoteLines = creditNoteLines,

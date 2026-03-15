@@ -85,9 +85,10 @@ namespace HexaBill.Api.Modules.Reports
                 }
                 else
                 {
+                    // Fallback: last 3 months including today. CRITICAL: toDate must be exclusive end (start of next day) so today's sales are included
                     var gst = _timeZoneService.GetCurrentDate();
-                    fromDate = gst.AddMonths(-3);
-                    toDate = gst;
+                    fromDate = new DateTime(gst.Year, gst.Month, gst.Day, 0, 0, 0, DateTimeKind.Unspecified).AddMonths(-3).ToUtcKind();
+                    toDate = new DateTime(gst.Year, gst.Month, gst.Day, 0, 0, 0, DateTimeKind.Unspecified).AddDays(1).ToUtcKind();
                 }
                 DateTime calendarFrom;
                 DateTime calendarTo;
