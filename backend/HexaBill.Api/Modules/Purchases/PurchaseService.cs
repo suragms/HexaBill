@@ -129,6 +129,7 @@ namespace HexaBill.Api.Modules.Purchases
                     Subtotal = p.Subtotal,
                     VatTotal = p.VatTotal,
                     TotalAmount = p.TotalAmount,
+                    IsTaxClaimable = p.IsTaxClaimable,
                     PaidAmount = paidAmount,
                     BalanceAmount = balanceAmount,
                     PaymentStatus = paymentStatus,
@@ -209,6 +210,7 @@ namespace HexaBill.Api.Modules.Purchases
                 Subtotal = purchase.Subtotal,
                 VatTotal = purchase.VatTotal,
                 TotalAmount = purchase.TotalAmount,
+                IsTaxClaimable = purchase.IsTaxClaimable,
                 PaidAmount = paidForThis,
                 BalanceAmount = balanceAmount,
                 PaymentStatus = paymentStatus,
@@ -408,6 +410,7 @@ namespace HexaBill.Api.Modules.Purchases
                     Subtotal = subtotal, // NEW: Amount before VAT
                     VatTotal = vatTotal, // NEW: VAT amount
                     TotalAmount = totalAmount, // Grand total (for backward compatibility)
+                    IsTaxClaimable = request.IsTaxClaimable ?? (vatTotal > 0), // Default true when VAT > 0
                     CreatedBy = userId,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -614,6 +617,10 @@ namespace HexaBill.Api.Modules.Purchases
                 purchase.Subtotal = subtotal;
                 purchase.VatTotal = vatTotal;
                 purchase.TotalAmount = totalAmount;
+                if (request.IsTaxClaimable.HasValue)
+                    purchase.IsTaxClaimable = request.IsTaxClaimable.Value;
+                else if (vatTotal > 0 && !purchase.IsTaxClaimable)
+                    purchase.IsTaxClaimable = true; // Auto-enable when VAT added and not explicitly set
 
                 // Create audit log for update
                 var auditLog = new AuditLog
@@ -978,6 +985,9 @@ namespace HexaBill.Api.Modules.Purchases
         public decimal PaidAmount { get; set; }
         public decimal BalanceAmount { get; set; }
         public string? PaymentStatus { get; set; } // Unpaid, Partial, Paid
+
+        /// <summary>True if input VAT can be claimed in VAT Return (Box 9b). Must be true for purchase to appear in Box 9b.</summary>
+        public bool IsTaxClaimable { get; set; }
             
         public List<PurchaseItemDto> Items { get; set; } = new();
     }

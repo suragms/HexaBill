@@ -37,6 +37,7 @@ const PurchasesPage = () => {
     purchaseDate: new Date().toISOString().split('T')[0],
     expenseCategory: 'Inventory', // Default category
     paymentType: 'Credit', // Cash or Credit (pay later)
+    isTaxClaimable: true, // VAT Return: include input VAT in Box 9b
     items: []
   })
   const [supplierSuggestions, setSupplierSuggestions] = useState([])
@@ -451,6 +452,7 @@ const PurchasesPage = () => {
         invoiceNo: (formData.invoiceNo || '').trim(),
         purchaseDate,
         expenseCategory: formData.expenseCategory || 'Inventory',
+        isTaxClaimable: formData.isTaxClaimable !== false,
         items: formData.items.map(item => ({
           productId: Number(item.productId),
           unitType: (item.unitType || 'PCS').trim().toUpperCase(),
@@ -485,6 +487,7 @@ const PurchasesPage = () => {
           purchaseDate: new Date().toISOString().split('T')[0],
           expenseCategory: 'Inventory',
           paymentType: 'Credit',
+          isTaxClaimable: true,
           items: []
         })
         loadPurchases()
@@ -515,6 +518,7 @@ const PurchasesPage = () => {
       purchaseDate: new Date().toISOString().split('T')[0],
       expenseCategory: 'Inventory',
       paymentType: 'Credit',
+      isTaxClaimable: true,
       items: []
     })
     setShowForm(true)
@@ -535,6 +539,7 @@ const PurchasesPage = () => {
       purchaseDate: purchase.purchaseDate ? new Date(purchase.purchaseDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       expenseCategory: purchase.expenseCategory || 'Inventory',
       paymentType: 'Credit',
+      isTaxClaimable: purchase.isTaxClaimable !== false,
       items: purchase.items?.map(item => ({
         productId: item.productId,
         productName: item.productName || item.product?.nameEn || '',
@@ -1202,13 +1207,25 @@ const PurchasesPage = () => {
                 </div>
               </div>
 
-              {/* (3) Payment Type */}
+              {/* (3) Payment Type + VAT Return ITC */}
               <div className="mb-4 sm:mb-6 p-3 bg-primary-50 rounded-lg border-2 border-primary-200">
-                <h3 className="text-sm font-bold text-primary-800 mb-3">Payment Type</h3>
-                <select className="w-full max-w-xs px-3 py-2 border-2 border-lime-300 rounded text-sm" value={formData.paymentType} onChange={(e) => setFormData({ ...formData, paymentType: e.target.value })}>
-                  <option value="Cash">Cash (Pay Now)</option>
-                  <option value="Credit">Credit (Pay Later)</option>
-                </select>
+                <h3 className="text-sm font-bold text-primary-800 mb-3">Payment Type & VAT Return</h3>
+                <div className="flex flex-wrap gap-4 items-center">
+                  <select className="px-3 py-2 border-2 border-lime-300 rounded text-sm" value={formData.paymentType} onChange={(e) => setFormData({ ...formData, paymentType: e.target.value })}>
+                    <option value="Cash">Cash (Pay Now)</option>
+                    <option value="Credit">Credit (Pay Later)</option>
+                  </select>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.isTaxClaimable !== false}
+                      onChange={(e) => setFormData({ ...formData, isTaxClaimable: e.target.checked })}
+                      className="rounded border-lime-400 text-green-600 focus:ring-green-500"
+                    />
+                    <span className="text-sm font-medium text-primary-700">Tax claimable (ITC)</span>
+                    <span className="text-xs text-primary-500" title="Include input VAT in VAT Return Box 9b">Include in VAT Return</span>
+                  </label>
+                </div>
               </div>
 
               {/* (4) Supplier Balance Info */}
@@ -1338,6 +1355,15 @@ const PurchasesPage = () => {
                         <span>Total</span>
                         <span>AED {(calculateTotal() * (1 + vatPercent / 100)).toFixed(2)}</span>
                       </div>
+                      <label className="flex items-center gap-2 mt-2 text-sm text-primary-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.isTaxClaimable !== false}
+                          onChange={(e) => setFormData({ ...formData, isTaxClaimable: e.target.checked })}
+                          className="rounded border-lime-400 text-green-600"
+                        />
+                        <span>Tax claimable (ITC) – include in VAT Return Box 9b</span>
+                      </label>
                     </div>
                   )}
                 </div>
@@ -1519,6 +1545,7 @@ const PurchasesPage = () => {
                       <th className="px-3 py-2 border-r border-lime-300 text-left">Date</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-right">Subtotal</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-right">VAT ({vatPercent}%)</th>
+                      <th className="px-3 py-2 border-r border-lime-300 text-center" title="VAT Return: Tax claimable (ITC)">ITC</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-right">Total</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-right">Paid</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-right">Balance</th>
@@ -1530,7 +1557,7 @@ const PurchasesPage = () => {
                   <tbody className="divide-y divide-lime-200">
                     {purchases.length === 0 ? (
                       <tr>
-                        <td colSpan="11" className="px-4 py-8 text-center">
+                        <td colSpan="12" className="px-4 py-8 text-center">
                           <div className="text-primary-500">
                             {filterPeriod === 'today' ? (
                               <>
@@ -1570,6 +1597,13 @@ const PurchasesPage = () => {
                             ) : (
                               <span className="text-primary-400 text-xs">-</span>
                             )}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                              (purchase.isTaxClaimable ?? purchase.IsTaxClaimable) !== false ? 'bg-green-100 text-green-800' : 'bg-neutral-100 text-neutral-500'
+                            }`} title="VAT Return: Input Tax Credit claimable">
+                              {(purchase.isTaxClaimable ?? purchase.IsTaxClaimable) !== false ? 'Yes' : 'No'}
+                            </span>
                           </td>
                           <td className="px-3 py-2 text-right font-bold text-green-700">AED {purchase.totalAmount.toFixed(2)}</td>
                           <td className="px-3 py-2 text-right text-primary-600">AED {(purchase.paidAmount ?? 0).toFixed(2)}</td>
@@ -1713,6 +1747,12 @@ const PurchasesPage = () => {
                             </div>
                           </>
                         )}
+                        <div>
+                          <p className="text-primary-500">ITC</p>
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${(purchase.isTaxClaimable ?? purchase.IsTaxClaimable) !== false ? 'bg-green-100 text-green-800' : 'bg-neutral-200 text-neutral-600'}`}>
+                            {(purchase.isTaxClaimable ?? purchase.IsTaxClaimable) !== false ? 'Yes' : 'No'}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
                         {['Unpaid', 'Partial'].includes(purchase.paymentStatus || '') && (

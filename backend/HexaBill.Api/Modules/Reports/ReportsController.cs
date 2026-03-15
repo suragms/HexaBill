@@ -145,6 +145,28 @@ namespace HexaBill.Api.Modules.Reports
             }
         }
 
+        [HttpGet("vat-return/suggest-period")]
+        [Authorize(Roles = "Admin,Owner,Manager")]
+        public async Task<ActionResult<ApiResponse<object>>> GetVatReturnSuggestPeriod()
+        {
+            try
+            {
+                var tenantId = CurrentTenantId;
+                if (tenantId <= 0 && !IsSystemAdmin) return Forbid();
+                var (from, to, label) = await _vatReturnReportService.GetSuggestedPeriodAsync(tenantId);
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Data = new { from, to, label }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Suggest period failed");
+                return StatusCode(500, new ApiResponse<object> { Success = false, Message = ex.Message });
+            }
+        }
+
         [HttpGet("vat-return/periods")]
         [Authorize(Roles = "Admin,Owner,Manager")]
         public async Task<ActionResult<ApiResponse<List<VatReturnPeriodDto>>>> GetVatReturnPeriods()

@@ -482,6 +482,8 @@ namespace HexaBill.Api.Models
         public bool? IncludesVat { get; set; } // True if costs include VAT, False if VAT should be added, Null for auto-detection
         [Range(0, 100, ErrorMessage = "VatPercent must be between 0 and 100")]
         public decimal? VatPercent { get; set; } // VAT percentage (default 5% for UAE)
+        /// <summary>VAT Return: Whether input VAT on this purchase can be claimed (ITC). Default true when VAT > 0.</summary>
+        public bool? IsTaxClaimable { get; set; }
 
         // Payment: Cash = full at purchase, Credit = pay later, Partial = part paid now
         [MaxLength(20)]
@@ -1652,6 +1654,10 @@ namespace HexaBill.Api.Models
         public int PurchaseCountInPeriod { get; set; }
         /// <summary>Approved expenses in period (for diagnostic when Box12 is 0).</summary>
         public int ExpenseCountInPeriod { get; set; }
+        /// <summary>Why purchases were excluded: TaxClaimableNo, VatZero.</summary>
+        public Dictionary<string, int>? PurchasesExcludedReasons { get; set; }
+        /// <summary>Why expenses were excluded: TaxClaimableNo, ClaimableZero, Petroleum.</summary>
+        public Dictionary<string, int>? ExpensesExcludedReasons { get; set; }
         public List<VatReturnOutputLineDto> OutputLines { get; set; } = new();
         public List<VatReturnInputLineDto> InputLines { get; set; } = new();
         public List<VatReturnCreditNoteLineDto> CreditNoteLines { get; set; } = new();

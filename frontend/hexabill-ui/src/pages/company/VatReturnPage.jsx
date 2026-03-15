@@ -398,6 +398,10 @@ const VatReturnPage = () => {
       }]
 
   const creditNoteLines = rawCreditNoteLines
+  const purchaseCountInPeriod = v != null ? (v.purchaseCountInPeriod ?? v.PurchaseCountInPeriod ?? 0) : 0
+  const expenseCountInPeriod = v != null ? (v.expenseCountInPeriod ?? v.ExpenseCountInPeriod ?? 0) : 0
+  const purchasesExcludedReasons = v?.purchasesExcludedReasons ?? v?.PurchasesExcludedReasons ?? null
+  const expensesExcludedReasons = v?.expensesExcludedReasons ?? v?.ExpensesExcludedReasons ?? null
   const totalInputNet = inputLines.reduce((s, l) => s + (Number(l.netAmount ?? l.NetAmount) || 0), 0)
   // Totals per tab (same filters as tables; coerce to number to avoid wrong/zero from strings)
   const salesLinesForTotal = outputLines.filter(line => ((line.vatScenario ?? line.VatScenario) || '').toLowerCase() !== 'exempt')
@@ -823,8 +827,36 @@ const VatReturnPage = () => {
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => handlePeriodPreset('thisYear')}
+                  onClick={async () => {
+                    try {
+                      const res = await reportsAPI.getVatReturnSuggestPeriod()
+                      const d = res?.data?.data ?? res?.data
+                      if (d?.from && d?.to) {
+                        setFromDate(d.from)
+                        setToDate(d.to)
+                        setSearchParams({ from: d.from, to: d.to })
+                        if (d.label && /^Q\d-\d{4}$/.test(d.label)) {
+                          const [, q, y] = d.label.match(/Q(\d)-(\d{4})/)
+                          setQuarter(parseInt(q, 10))
+                          setYear(parseInt(y, 10))
+                        } else if (d.label && /^\d{4}$/.test(d.label)) {
+                          setYear(parseInt(d.label, 10))
+                        }
+                        fetchVatReturn(d.from, d.to)
+                        toast.success(`Loaded ${d.label || `${d.from} to ${d.to}`}`)
+                      } else toast.error('Could not suggest period')
+                    } catch (err) {
+                      toast.error(err?.response?.data?.message || 'Failed to load period')
+                    }
+                  }}
                   className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
+                >
+                  Load period where I have data
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePeriodPreset('thisYear')}
+                  className="px-3 py-1.5 border border-blue-600 text-blue-700 text-sm font-medium rounded-md hover:bg-blue-50"
                 >
                   Load This Year ({year || new Date().getFullYear()})
                 </button>
@@ -1125,6 +1157,14 @@ const VatReturnPage = () => {
                 <>
                   <p className="mt-2 text-gray-600 py-4 rounded-lg bg-gray-50 border border-gray-200 px-4">No data for this period.</p>
                   <p className="mt-2 text-xs text-gray-600">Only purchases in this period with <strong>Tax claimable</strong> and VAT &gt; 0 appear. Check that purchase dates fall in {fromDate} – {toDate} and that items are marked tax claimable on the Purchases page.</p>
+                  {purchaseCountInPeriod > 0 && purchasesExcludedReasons && Object.keys(purchasesExcludedReasons).length > 0 && (
+                    <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                      {purchaseCountInPeriod} purchase(s) in this period: {[
+                        purchasesExcludedReasons.TaxClaimableNo > 0 && `${purchasesExcludedReasons.TaxClaimableNo} not marked Tax claimable`,
+                        purchasesExcludedReasons.VatZero > 0 && `${purchasesExcludedReasons.VatZero} with zero VAT`
+                      ].filter(Boolean).join('; ')}. Edit on the <strong>Purchases</strong> page (set ITC = Yes).
+                    </p>
+                  )}
                 </>
               )}
               <div className="overflow-x-auto mt-2">
@@ -1170,6 +1210,15 @@ const VatReturnPage = () => {
                   <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                     No claimable expenses in this period. On the <strong>Expenses</strong> page, mark expenses as <strong>Tax claimable (ITC)</strong> and ensure they have VAT. Then click <strong>Refresh</strong> or <strong>Recalculate</strong> here to update.
                   </p>
+                  {expenseCountInPeriod > 0 && expensesExcludedReasons && Object.keys(expensesExcludedReasons).length > 0 && (
+                    <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                      {expenseCountInPeriod} expense(s) in this period: {[
+                        expensesExcludedReasons.TaxClaimableNo > 0 && `${expensesExcludedReasons.TaxClaimableNo} not marked Tax claimable`,
+                        expensesExcludedReasons.ClaimableZero > 0 && `${expensesExcludedReasons.ClaimableZero} with no claimable VAT`,
+                        expensesExcludedReasons.Petroleum > 0 && `${expensesExcludedReasons.Petroleum} petroleum (excluded)`
+                      ].filter(Boolean).join('; ')}. Edit on the <strong>Expenses</strong> page.
+                    </p>
+                  )}
                 </>
               )}
               <div className="overflow-x-auto mt-2">

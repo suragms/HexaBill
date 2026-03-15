@@ -17,6 +17,7 @@ namespace HexaBill.Api.Modules.Reports
         Task<VatReturnDto> GetVatReturnAsync(int tenantId, int quarter, int year);
         Task<VatReturn201Dto> GetVatReturn201Async(int tenantId, DateTime fromDate, DateTime toDate);
         Task<VatReturn201Dto> GetVatReturn201Async(int tenantId, DateTime fromDate, DateTime toDate, DateTime? fromCalendarInclusive, DateTime? toCalendarInclusive);
+        Task<(string from, string to, string label)> GetSuggestedPeriodAsync(int tenantId);
     }
 
     public class VatReturnReportService : IVatReturnReportService
@@ -231,6 +232,8 @@ namespace HexaBill.Api.Modules.Reports
                 .ToListAsync();
 
             decimal box4 = 0, box9b = 0, box10 = 0;
+            var purchExclTaxClaimable = 0;
+            var purchExclVatZero = 0;
             foreach (var p in purchasesInPeriod)
             {
                 if (p.IsReverseCharge)
@@ -239,6 +242,7 @@ namespace HexaBill.Api.Modules.Reports
                     var rcVat = p.ReverseChargeVat ?? p.VatTotal ?? 0;
                     box4 += VatCalculator.Round(rcNet);
                     box10 += VatCalculator.Round(p.IsTaxClaimable ? rcVat : 0);
+                    if (!p.IsTaxClaimable) purchExclTaxClaimable++;
                     reverseChargeLines.Add(new VatReturnReverseChargeLineDto
                     {
                         Reference = p.InvoiceNo ?? p.Id.ToString(),
@@ -268,7 +272,11 @@ namespace HexaBill.Api.Modules.Reports
                             IsTaxClaimable = p.IsTaxClaimable
                         });
                     }
+                    else
+                        purchExclVatZero++;
                 }
+                else
+                    purchExclTaxClaimable++;
             }
 
             // Expenses: Box 9b (claimable, non-petroleum) and PetroleumExcluded - use calendar date comparison
@@ -281,11 +289,15 @@ namespace HexaBill.Api.Modules.Reports
                 .ToListAsync();
 
             decimal petroleumExcluded = 0;
+            var expExclTaxClaimable = 0;
+            var expExclClaimableZero = 0;
+            var expExclPetroleum = 0;
             foreach (var e in expensesInPeriod)
             {
                 if (string.Equals(e.TaxType, TaxTypes.Petroleum, StringComparison.OrdinalIgnoreCase))
                 {
                     petroleumExcluded += VatCalculator.Round(e.Amount);
+                    expExclPetroleum++;
                     continue;
                 }
                 // Use ClaimableVat when set; when marked claimable but 0/null, use VatAmount; else derive from TotalAmount - Amount (VAT = total - net)
@@ -317,6 +329,10 @@ namespace HexaBill.Api.Modules.Reports
                         IsTaxClaimable = e.IsTaxClaimable
                     });
                 }
+                else if (e.IsTaxClaimable)
+                    expExclClaimableZero++;
+                else
+                    expExclTaxClaimable++;
             }
 
             // Box 11: Input credit notes (purchase returns VAT) - if we support input credit note VAT later
@@ -415,6 +431,8 @@ namespace HexaBill.Api.Modules.Reports
                 TransactionCount = txCount,
                 PurchaseCountInPeriod = purchasesInPeriod.Count,
                 ExpenseCountInPeriod = expensesInPeriod.Count,
+                PurchasesExcludedReasons = (purchExclTaxClaimable > 0 || purchExclVatZero > 0) ? new Dictionary<string, int> { ["TaxClaimableNo"] = purchExclTaxClaimable, ["VatZero"] = purchExclVatZero } : null,
+                ExpensesExcludedReasons = (expExclTaxClaimable > 0 || expExclClaimableZero > 0 || expExclPetroleum > 0) ? new Dictionary<string, int> { ["TaxClaimableNo"] = expExclTaxClaimable, ["ClaimableZero"] = expExclClaimableZero, ["Petroleum"] = expExclPetroleum } : null,
                 OutputLines = outputLines,
                 InputLines = inputLines,
                 CreditNoteLines = creditNoteLines,
@@ -512,6 +530,73 @@ namespace HexaBill.Api.Modules.Reports
                 4 => (new DateTime(year, 10, 1), new DateTime(year, 12, 31)),
                 _ => (new DateTime(year, 1, 1), new DateTime(year, 3, 31))
             };
+        }
+
+        /// <summary>Suggest the FTA quarter or full year with the most transactions for the tenant.</summary>
+        public async Task<(string from, string to, string label)> GetSuggestedPeriodAsync(int tenantId)
+        {
+            var now = DateTime.UtcNow;
+            var bestCount = 0;
+            var bestFrom = "";
+            var bestTo = "";
+            var bestLabel = "";
+
+            // Check last 2 years: each FTA quarter + full year
+            for (var y = now.Year; y >= now.Year - 2; y--)
+            {
+                for (var q = 1; q <= 4; q++)
+                {
+                    var (f, t) = QuarterToDateRangeFta(q, y);
+                    if (t < now.AddYears(-2) || f > now) continue;
+                    var fromOnly = DateOnly.FromDateTime(f);
+                    var toOnly = DateOnly.FromDateTime(t);
+                    var salesCount = await _context.Sales
+                        .CountAsync(s => (s.TenantId == tenantId || (s.TenantId == null && s.OwnerId == tenantId)) && !s.IsDeleted
+                            && DateOnly.FromDateTime(s.InvoiceDate) >= fromOnly && DateOnly.FromDateTime(s.InvoiceDate) <= toOnly);
+                    var purchCount = await _context.Purchases
+                        .CountAsync(p => (p.TenantId == tenantId || (p.TenantId == null && p.OwnerId == tenantId))
+                            && DateOnly.FromDateTime(p.PurchaseDate) >= fromOnly && DateOnly.FromDateTime(p.PurchaseDate) <= toOnly);
+                    var expCount = await _context.Expenses
+                        .CountAsync(e => (e.TenantId == tenantId || (e.TenantId == null && e.OwnerId == tenantId)) && e.Status == ExpenseStatus.Approved
+                            && DateOnly.FromDateTime(e.Date) >= fromOnly && DateOnly.FromDateTime(e.Date) <= toOnly);
+                    var total = salesCount + purchCount + expCount;
+                    if (total > bestCount)
+                    {
+                        bestCount = total;
+                        bestFrom = fromOnly.ToString("yyyy-MM-dd");
+                        bestTo = toOnly.ToString("yyyy-MM-dd");
+                        bestLabel = $"Q{q}-{y}";
+                    }
+                }
+                // Full calendar year
+                var (fy, fyEnd) = (new DateTime(y, 1, 1), new DateTime(y, 12, 31));
+                var fyFrom = DateOnly.FromDateTime(fy);
+                var fyTo = DateOnly.FromDateTime(fyEnd);
+                var fySales = await _context.Sales
+                    .CountAsync(s => (s.TenantId == tenantId || (s.TenantId == null && s.OwnerId == tenantId)) && !s.IsDeleted
+                        && DateOnly.FromDateTime(s.InvoiceDate) >= fyFrom && DateOnly.FromDateTime(s.InvoiceDate) <= fyTo);
+                var fyPurch = await _context.Purchases
+                    .CountAsync(p => (p.TenantId == tenantId || (p.TenantId == null && p.OwnerId == tenantId))
+                        && DateOnly.FromDateTime(p.PurchaseDate) >= fyFrom && DateOnly.FromDateTime(p.PurchaseDate) <= fyTo);
+                var fyExp = await _context.Expenses
+                    .CountAsync(e => (e.TenantId == tenantId || (e.TenantId == null && e.OwnerId == tenantId)) && e.Status == ExpenseStatus.Approved
+                        && DateOnly.FromDateTime(e.Date) >= fyFrom && DateOnly.FromDateTime(e.Date) <= fyTo);
+                var fyTotal = fySales + fyPurch + fyExp;
+                if (fyTotal > bestCount)
+                {
+                    bestCount = fyTotal;
+                    bestFrom = fyFrom.ToString("yyyy-MM-dd");
+                    bestTo = fyTo.ToString("yyyy-MM-dd");
+                    bestLabel = y.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+
+            if (bestCount == 0)
+            {
+                var (defFrom, defTo) = QuarterToDateRangeFta(1, now.Year);
+                return (defFrom.ToString("yyyy-MM-dd"), defTo.ToString("yyyy-MM-dd"), $"Q1-{now.Year}");
+            }
+            return (bestFrom, bestTo, bestLabel);
         }
     }
 }
