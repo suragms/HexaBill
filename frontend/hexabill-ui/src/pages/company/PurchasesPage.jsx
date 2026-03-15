@@ -308,6 +308,23 @@ const PurchasesPage = () => {
     }
   }
 
+  const handleBulkSetTaxClaimable = async () => {
+    try {
+      setBulkFixingItc(true)
+      const res = await purchasesAPI.bulkSetTaxClaimable()
+      if (res?.success) {
+        toast.success(res.message || 'Tax claimable updated')
+        loadPurchases()
+      } else {
+        toast.error(res?.message || 'Failed to update')
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to update tax claimable')
+    } finally {
+      setBulkFixingItc(false)
+    }
+  }
+
   const getDateRangeFromPeriod = (period) => {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
