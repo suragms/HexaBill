@@ -711,6 +711,8 @@ const PosPage = () => {
     }
   }
 
+  const handleQuickPrintA4 = () => handlePrintFormat('A4')
+
   const handlePrintReceipt = async () => {
     console.log('Print Receipt Called')
     console.log('  - lastCreatedInvoice:', lastCreatedInvoice)
