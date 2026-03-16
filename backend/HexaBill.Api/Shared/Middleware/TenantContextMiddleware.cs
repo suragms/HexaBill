@@ -233,45 +233,11 @@ namespace HexaBill.Api.Shared.Middleware
 
                 if (tenant == null)
                 {
-                    // Development: use first active tenant as fallback so app keeps working
-                    if (_env.IsDevelopment())
-                    {
-                        try
-                        {
-                            var fallbackTenant = await dbContext.Tenants.AsNoTracking()
-                                .Where(t => t.Status == TenantStatus.Active)
-                                .OrderBy(t => t.Id)
-                                .FirstOrDefaultAsync();
-                            if (fallbackTenant != null)
-                            {
-                                _logger.LogWarning("Development: Tenant {TenantId} not found - using fallback tenant {FallbackId} ({Name})", tenantId, fallbackTenant.Id, fallbackTenant.Name);
-                                tenant = fallbackTenant;
-                                tenantId = fallbackTenant.Id;
-                            }
-                        }
-                        catch (Exception fallbackEx)
-                        {
-                            // If FeaturesJson column is missing, skip fallback
-                            var pgEx = fallbackEx as Npgsql.PostgresException 
-                                ?? fallbackEx.InnerException as Npgsql.PostgresException
-                                ?? (fallbackEx.InnerException?.InnerException as Npgsql.PostgresException);
-                            if (pgEx != null && pgEx.SqlState == "42703" && pgEx.MessageText.Contains("FeaturesJson"))
-                            {
-                                _logger.LogWarning("Skipping development fallback due to missing FeaturesJson column");
-                            }
-                            else
-                            {
-                                throw;
-                            }
-                        }
-                    }
-                    if (tenant == null)
-                    {
-                        _logger.LogWarning("Tenant {TenantId} not found in database", tenantId);
-                        context.Response.StatusCode = 403;
-                        await context.Response.WriteAsync("Tenant not found");
-                        return;
-                    }
+                    // SECURITY: Development tenant fallback REMOVED - never substitute another tenant (cross-tenant data leakage risk)
+                    _logger.LogWarning("Tenant {TenantId} not found in database", tenantId);
+                    context.Response.StatusCode = 403;
+                    await context.Response.WriteAsync("Tenant not found");
+                    return;
                 }
 
                 // Check tenant status - in Development, auto-activate suspended/expired tenants

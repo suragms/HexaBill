@@ -1109,9 +1109,8 @@ app.UseMiddleware<HexaBill.Api.Shared.Middleware.MaintenanceMiddleware>();
 
 app.UseAuthorization();
 
-// Data validation middleware (multi-tenant isolation check)
-// Temporarily disabled - will be re-enabled after model updates
-// app.UseDataValidation();
+// Data validation middleware (multi-tenant isolation: blocks requests without tenant_id/owner_id unless SystemAdmin)
+app.UseDataValidation();
 app.MapControllers();
 
 // CORS diagnostic endpoint (anonymous for debugging)

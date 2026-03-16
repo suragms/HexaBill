@@ -256,8 +256,8 @@ namespace HexaBill.Api.Modules.Billing
 
         public async Task<string> RenderTemplateHtmlAsync(string htmlTemplate, SaleDto sale, CompanySettings settings)
         {
-            // Get customer TRN
-            var customerTrn = await GetCustomerTrnAsync(sale.CustomerId);
+            // Get customer TRN (tenant-scoped)
+            var customerTrn = await GetCustomerTrnAsync(sale.CustomerId, sale.OwnerId);
             var trnDisplay = string.IsNullOrWhiteSpace(customerTrn) ? "" : customerTrn;
 
             // Replace company placeholders
@@ -364,12 +364,16 @@ namespace HexaBill.Api.Modules.Billing
             return processedHtml;
         }
 
-        private async Task<string> GetCustomerTrnAsync(int? customerId)
+        /// <summary>CRITICAL: Tenant-scoped to prevent cross-tenant data leakage.</summary>
+        private async Task<string> GetCustomerTrnAsync(int? customerId, int tenantId)
         {
             if (!customerId.HasValue) return "";
-            
-            var customer = await _context.Customers.FindAsync(customerId.Value);
-            return customer?.Trn ?? "";
+            var customer = await _context.Customers
+                .AsNoTracking()
+                .Where(c => c.Id == customerId.Value && c.TenantId == tenantId)
+                .Select(c => c.Trn)
+                .FirstOrDefaultAsync();
+            return customer ?? "";
         }
 
         // Helper method to convert numbers to words for invoice

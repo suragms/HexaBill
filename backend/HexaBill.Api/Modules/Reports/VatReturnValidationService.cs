@@ -72,21 +72,34 @@ namespace HexaBill.Api.Modules.Reports
                 }
             }
 
-            // V-PERIOD-DATE: ensure all included sales fall within the selected VAT period
+            // V-PERIOD-DATE: sales outside selected VAT period — one aggregated message (not one per invoice)
             var outOfRangeSales = await _context.Sales
                 .Where(s => (s.TenantId != null ? s.TenantId == tenantId : s.OwnerId == tenantId)
                     && !s.IsDeleted
                     && (s.InvoiceDate < fromUtc || s.InvoiceDate >= toEnd))
-                .Select(s => new { s.Id, s.InvoiceNo, s.InvoiceDate })
+                .Select(s => new { s.InvoiceNo, s.InvoiceDate })
+                .OrderBy(s => s.InvoiceDate)
+                .Take(3)
                 .ToListAsync();
-            foreach (var s in outOfRangeSales)
+            var outOfRangeCount = await _context.Sales
+                .Where(s => (s.TenantId != null ? s.TenantId == tenantId : s.OwnerId == tenantId)
+                    && !s.IsDeleted
+                    && (s.InvoiceDate < fromUtc || s.InvoiceDate >= toEnd))
+                .CountAsync();
+            if (outOfRangeCount > 0)
             {
+                var sample = outOfRangeSales.Count > 0
+                    ? string.Join(", ", outOfRangeSales.Select(s => $"{s.InvoiceNo} ({s.InvoiceDate:yyyy-MM-dd})"))
+                    : "";
+                var msg = outOfRangeCount == 1
+                    ? $"1 invoice is outside this period{(string.IsNullOrEmpty(sample) ? "" : ": " + sample)}. Choose a period that includes your sales dates."
+                    : $"{outOfRangeCount} invoices are outside this period{(string.IsNullOrEmpty(sample) ? "" : ", e.g. " + sample)}. Choose a period that includes your sales dates.";
                 issues.Add(new ValidationIssueDto
                 {
                     RuleId = "V-PERIOD-DATE",
                     Severity = "Warning",
-                    Message = $"Sale {s.InvoiceNo} has invoice date {s.InvoiceDate:yyyy-MM-dd} outside the selected VAT period.",
-                    EntityRef = $"Sale:{s.Id}:{s.InvoiceNo}"
+                    Message = msg,
+                    EntityRef = "VATReturn:Period"
                 });
             }
 

@@ -361,9 +361,10 @@ namespace HexaBill.Api.Modules.Customers
 
             if (!string.IsNullOrEmpty(search))
             {
-                query = query.Where(c => c.Name.Contains(search) || 
+                var searchLower = search.Trim().ToLowerInvariant();
+                query = query.Where(c => (c.Name != null && c.Name.ToLower().Contains(searchLower)) || 
                                         (c.Phone != null && c.Phone.Contains(search)) ||
-                                        (c.Email != null && c.Email.Contains(search)) ||
+                                        (c.Email != null && c.Email.ToLower().Contains(searchLower)) ||
                                         (c.Trn != null && c.Trn.Contains(search)));
             }
 

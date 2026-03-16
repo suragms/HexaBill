@@ -56,9 +56,10 @@ namespace HexaBill.Api.Modules.Customers
                     
                     if (!string.IsNullOrEmpty(search))
                     {
-                        query = query.Where(c => c.Name.Contains(search) || 
-                                               c.Phone!.Contains(search) || 
-                                               c.Email!.Contains(search));
+                        var sl = search.Trim().ToLowerInvariant();
+                        query = query.Where(c => (c.Name != null && c.Name.ToLower().Contains(sl)) || 
+                                               (c.Phone != null && c.Phone.Contains(search)) || 
+                                               (c.Email != null && c.Email.ToLower().Contains(sl)));
                     }
                     
                     var totalCount = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.CountAsync(query);

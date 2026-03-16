@@ -469,11 +469,11 @@ namespace HexaBill.Api.Modules.Billing
                     _logger.LogDebug("Auto-generated invoice number: {InvoiceNo} for TenantId: {TenantId}", invoiceNo, tenantId);
                 }
 
-                // IDEMPOTENCY CHECK: If ExternalReference provided, check for duplicate
+                // IDEMPOTENCY CHECK: If ExternalReference provided, check for duplicate (tenant-scoped)
                 if (!string.IsNullOrWhiteSpace(request.ExternalReference))
                 {
                     var existingSale = await _context.Sales
-                        .FirstOrDefaultAsync(s => s.ExternalReference == request.ExternalReference && !s.IsDeleted);
+                        .FirstOrDefaultAsync(s => s.ExternalReference == request.ExternalReference && s.TenantId == tenantId && !s.IsDeleted);
                     if (existingSale != null)
                     {
                         _logger.LogWarning("Duplicate external reference detected: {Ref}. Returning existing sale ID: {Id}", request.ExternalReference, existingSale.Id);

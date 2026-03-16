@@ -837,7 +837,15 @@ const VatReturnPage = () => {
           })()}
           {issues.length > 0 && blocking.length === 0 && !hasSys001 && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              <span className="font-medium">Warnings:</span> {issues.map(i => i.message).join('; ')}
+              <span className="font-medium">Warnings:</span>
+              <ul className="mt-1 list-disc list-inside space-y-0.5">
+                {issues.slice(0, 5).map((i, idx) => (
+                  <li key={idx}>{i.message}</li>
+                ))}
+                {issues.length > 5 && (
+                  <li className="text-amber-600">…and {issues.length - 5} more</li>
+                )}
+              </ul>
             </div>
           )}
           {issues.length === 0 && v && (

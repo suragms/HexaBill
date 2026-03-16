@@ -746,7 +746,7 @@ namespace HexaBill.Api.Modules.Billing
                 {
                     if (sale.CustomerId.HasValue && !customerTrnMap.ContainsKey(sale.CustomerId))
                     {
-                        var customerTrn = await GetCustomerTrnAsync(sale.CustomerId);
+                        var customerTrn = await GetCustomerTrnAsync(sale.CustomerId, sale.OwnerId);
                         customerTrnMap[sale.CustomerId] = customerTrn ?? "";
                     }
                 }
@@ -1217,12 +1217,16 @@ if (hasLogo)
                 col.Item().Text(subtitle).FontSize(14).Bold().AlignCenter();
         }
 
-        private async Task<string> GetCustomerTrnAsync(int? customerId)
+        /// <summary>CRITICAL: Tenant-scoped to prevent cross-tenant data leakage.</summary>
+        private async Task<string> GetCustomerTrnAsync(int? customerId, int tenantId)
         {
             if (!customerId.HasValue) return "";
-            
-            var customer = await _context.Customers.FindAsync(customerId.Value);
-            return customer?.Trn ?? "";
+            var customer = await _context.Customers
+                .AsNoTracking()
+                .Where(c => c.Id == customerId.Value && c.TenantId == tenantId)
+                .Select(c => c.Trn)
+                .FirstOrDefaultAsync();
+            return customer ?? "";
         }
 
         /// <summary>
@@ -1367,10 +1371,11 @@ if (hasLogo)
             }
         }
 
-        private async Task<string?> GetCustomInvoiceTemplateAsync()
+        /// <summary>CRITICAL: Tenant-scoped - must pass ownerId to prevent cross-tenant data leakage.</summary>
+        private async Task<string?> GetCustomInvoiceTemplateAsync(int ownerId)
         {
             var setting = await _context.Settings
-                .FirstOrDefaultAsync(s => s.Key == "INVOICE_TEMPLATE");
+                .FirstOrDefaultAsync(s => s.Key == "INVOICE_TEMPLATE" && (s.OwnerId == ownerId || s.TenantId == ownerId));
             return setting?.Value;
         }
 
@@ -1378,8 +1383,8 @@ if (hasLogo)
         {
             try
             {
-                // Get customer TRN
-                var customerTrn = await GetCustomerTrnAsync(sale.CustomerId);
+                // Get customer TRN (tenant-scoped)
+                var customerTrn = await GetCustomerTrnAsync(sale.CustomerId, sale.OwnerId);
                 var trnDisplay = string.IsNullOrWhiteSpace(customerTrn) ? "" : customerTrn;
 
                 // Replace template variables

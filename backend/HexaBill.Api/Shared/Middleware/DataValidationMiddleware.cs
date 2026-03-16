@@ -4,6 +4,7 @@ Ensures data integrity and multi-tenant isolation across all features
 Author: AI Assistant
 Date: 2024-12-26
 */
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using HexaBill.Api.Data;
@@ -41,28 +42,30 @@ namespace HexaBill.Api.Shared.Middleware
                 return;
             }
 
-            // Get current user's OwnerId from claims
-            var ownerIdClaim = context.User.FindFirst("owner_id")?.Value;
+            // Get current user's OwnerId/TenantId from claims
+            var ownerIdClaim = context.User.FindFirst("owner_id")?.Value 
+                ?? context.User.FindFirst("tenant_id")?.Value
+                ?? context.User.Claims.FirstOrDefault(c => c.Type.EndsWith("owner_id", StringComparison.OrdinalIgnoreCase))?.Value
+                ?? context.User.Claims.FirstOrDefault(c => c.Type.EndsWith("tenant_id", StringComparison.OrdinalIgnoreCase))?.Value;
             int? currentOwnerId = null;
             if (!string.IsNullOrEmpty(ownerIdClaim) && int.TryParse(ownerIdClaim, out int ownerId))
             {
                 currentOwnerId = ownerId;
             }
             
-            // CRITICAL: Validate OwnerId is set for non-super-admin users
-            var userRole = context.User.FindFirst("role")?.Value;
-            var userId = context.User.FindFirst("user_id")?.Value;
+            // CRITICAL: Validate OwnerId/TenantId is set for non-SystemAdmin users (data isolation)
+            var userRole = context.User.FindFirst("role")?.Value ?? context.User.FindFirst(ClaimTypes.Role)?.Value ?? "";
+            var isSystemAdmin = string.Equals(userRole, "SystemAdmin", StringComparison.OrdinalIgnoreCase);
             
-            // Skip validation for super admin (OwnerId = null)
-            if (currentOwnerId == null && !string.IsNullOrEmpty(userId))
+            if (!isSystemAdmin && currentOwnerId == null)
             {
-                _logger.LogWarning("User {UserId} has no OwnerId but is not a super admin", 
-                    context.User.FindFirst("user_id")?.Value);
+                _logger.LogWarning("User {UserId} (role {Role}) has no owner_id/tenant_id claim - blocking for data isolation", 
+                    context.User.FindFirst("user_id")?.Value ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, userRole);
                 context.Response.StatusCode = 403;
                 await context.Response.WriteAsJsonAsync(new
                 {
                     success = false,
-                    message = "Access denied: Invalid owner context"
+                    message = "Access denied: Invalid tenant context"
                 });
                 return;
             }
