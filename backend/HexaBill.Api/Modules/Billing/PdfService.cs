@@ -86,7 +86,7 @@ namespace HexaBill.Api.Modules.Billing
                 var customerPendingInfo = await GetCustomerPendingBalanceInfoAsync(sale.CustomerId, sale.OwnerId);
                 _logger.LogDebug("Company: {CompanyName}", settings.CompanyNameEn);
                 
-                var customerTrn = await GetCustomerTrnAsync(sale.CustomerId);
+                var customerTrn = await GetCustomerTrnAsync(sale.CustomerId, sale.OwnerId);
                 var trnDisplay = string.IsNullOrWhiteSpace(customerTrn) ? "" : customerTrn;
                 _logger.LogDebug("Customer TRN: {Trn}", trnDisplay);
 

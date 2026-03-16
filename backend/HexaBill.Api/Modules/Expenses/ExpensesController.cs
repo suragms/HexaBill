@@ -598,6 +598,34 @@ namespace HexaBill.Api.Modules.Expenses
             }
         }
 
+        [HttpPost("bulk-delete")]
+        [Authorize(Roles = "Admin,Owner")]
+        public async Task<ActionResult<ApiResponse<BulkDeleteExpensesResult>>> BulkDeleteExpenses([FromBody] BulkDeleteExpensesRequest request)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+                {
+                    return Unauthorized(new ApiResponse<BulkDeleteExpensesResult> { Success = false, Message = "Invalid user" });
+                }
+
+                var tenantId = CurrentTenantId;
+                if (request == null || request.ExpenseIds == null || request.ExpenseIds.Count == 0)
+                {
+                    return BadRequest(new ApiResponse<BulkDeleteExpensesResult> { Success = false, Message = "expenseIds required" });
+                }
+
+                var result = await _expenseService.BulkDeleteExpensesAsync(tenantId, request, userId);
+                return Ok(new ApiResponse<BulkDeleteExpensesResult> { Success = true, Data = result });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "BulkDeleteExpenses failed");
+                return StatusCode(500, new ApiResponse<BulkDeleteExpensesResult> { Success = false, Message = ex.Message });
+            }
+        }
+
         [HttpPost("bulk-set-claimable")]
         [Authorize(Roles = "Admin,Owner")]
         public async Task<ActionResult<ApiResponse<BulkVatUpdateResult>>> BulkSetClaimable([FromBody] BulkSetClaimableRequest request)

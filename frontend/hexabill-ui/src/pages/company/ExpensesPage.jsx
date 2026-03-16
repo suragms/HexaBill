@@ -1326,6 +1326,36 @@ const ExpensesPage = () => {
                 >
                   Mark as not claimable
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setDangerModal({
+                    isOpen: true,
+                    title: 'Delete Selected Expenses?',
+                    message: `Are you sure you want to delete ${selectedExpenseIds.length} selected expense(s)? This cannot be undone.`,
+                    confirmLabel: 'Delete',
+                    onConfirm: async () => {
+                      try {
+                        const res = await expensesAPI.bulkDeleteExpenses(selectedExpenseIds)
+                        if (res?.success && res?.data) {
+                          const { deleted, skipped, errors } = res.data
+                          if (deleted > 0) {
+                            toast.success(`Deleted ${deleted} expense(s)`, { id: 'expense-bulk-delete', duration: 4000 })
+                            setSelectedExpenseIds([])
+                            await fetchExpenses()
+                            window.dispatchEvent(new CustomEvent('dataUpdated'))
+                          }
+                          if (skipped > 0) toast.warning(`${skipped} skipped (locked period or error)`)
+                          if (errors?.length) toast.error(errors.slice(0, 3).join('; '))
+                        } else toast.error(res?.message || 'Delete failed')
+                      } catch (err) {
+                        toast.error(err?.response?.data?.message || 'Delete failed')
+                      }
+                    }
+                  })}
+                  className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700"
+                >
+                  Delete selected ({selectedExpenseIds.length})
+                </button>
               </>
             )}
             <button

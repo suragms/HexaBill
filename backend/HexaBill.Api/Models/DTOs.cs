@@ -688,6 +688,18 @@ namespace HexaBill.Api.Models
         public bool IsTaxClaimable { get; set; }
     }
 
+    public class BulkDeleteExpensesRequest
+    {
+        public List<int> ExpenseIds { get; set; } = new();
+    }
+
+    public class BulkDeleteExpensesResult
+    {
+        public int Deleted { get; set; }
+        public int Skipped { get; set; }
+        public List<string> Errors { get; set; } = new();
+    }
+
     public class RecurringExpenseDto
     {
         public int Id { get; set; }

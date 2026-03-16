@@ -17,6 +17,8 @@ Date: 2026
     <Compile Remove="MigrationFixer\**\*.cs" />
     <!-- Exclude RunSql: standalone tool with top-level statements; run via dotnet run -p Scripts/RunSql -->
     <Compile Remove="Scripts\RunSql\**\*.cs" />
+    <!-- Exclude ZayogaMigration: standalone tool with top-level statements; run via dotnet run -p Scripts/ZayogaMigration -->
+    <Compile Remove="Scripts\ZayogaMigration\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />

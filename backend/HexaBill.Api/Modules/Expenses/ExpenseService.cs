@@ -26,6 +26,7 @@ namespace HexaBill.Api.Modules.Expenses
         Task<List<string>> GetExpenseCategoriesAsync(int tenantId);
         Task<BulkVatUpdateResult> BulkVatUpdateAsync(int tenantId, BulkVatUpdateRequest request);
         Task<BulkVatUpdateResult> BulkSetClaimableAsync(int tenantId, BulkSetClaimableRequest request);
+        Task<BulkDeleteExpensesResult> BulkDeleteExpensesAsync(int tenantId, BulkDeleteExpensesRequest request, int userId);
     }
 
     public class ExpenseService : IExpenseService
@@ -834,6 +835,70 @@ namespace HexaBill.Api.Modules.Expenses
             }
             await _context.SaveChangesAsync();
             return result;
+        }
+
+        public async Task<BulkDeleteExpensesResult> BulkDeleteExpensesAsync(int tenantId, BulkDeleteExpensesRequest request, int userId)
+        {
+            var result = new BulkDeleteExpensesResult();
+            if (request?.ExpenseIds == null || request.ExpenseIds.Count == 0)
+                return result;
+
+            return await _context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+            {
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
+                {
+                    var expenses = await _context.Expenses
+                        .Where(e => e.TenantId == tenantId && request.ExpenseIds.Contains(e.Id))
+                        .Include(e => e.Category)
+                        .ToListAsync();
+
+                    foreach (var expense in expenses)
+                    {
+                        try
+                        {
+                            if (await _vatValidation.IsTransactionDateInLockedPeriodAsync(tenantId, expense.Date))
+                            {
+                                result.Skipped++;
+                                result.Errors.Add($"Expense ID {expense.Id}: period locked");
+                                continue;
+                            }
+
+                            var categoryName = expense.Category?.Name ?? "?";
+                            var amount = expense.Amount;
+
+                            _context.Expenses.Remove(expense);
+
+                            _context.AuditLogs.Add(new AuditLog
+                            {
+                                OwnerId = tenantId,
+                                TenantId = tenantId,
+                                UserId = userId,
+                                Action = "Expense Deleted (Bulk)",
+                                Details = $"Expense ID: {expense.Id}, Category: {categoryName}, Amount: {amount:C}",
+                                CreatedAt = DateTime.UtcNow
+                            });
+
+                            result.Deleted++;
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Skipped++;
+                            result.Errors.Add($"Expense ID {expense.Id}: {ex.Message}");
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync();
+                    _logger.LogError(ex, "BulkDeleteExpenses failed");
+                    throw;
+                }
+            });
         }
 
         public async Task<BulkVatUpdateResult> BulkSetClaimableAsync(int tenantId, BulkSetClaimableRequest request)

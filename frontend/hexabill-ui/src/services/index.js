@@ -735,6 +735,11 @@ export const expensesAPI = {
     return response.data
   },
 
+  bulkDeleteExpenses: async (expenseIds) => {
+    const response = await api.post('/expenses/bulk-delete', { expenseIds })
+    return response.data
+  },
+
   uploadAttachment: async (expenseId, file) => {
     const formData = new FormData()
     formData.append('file', file)
