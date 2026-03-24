@@ -328,6 +328,24 @@ const VatReturnPage = () => {
     return () => window.removeEventListener('dataUpdated', handler)
   }, [fromDate, toDate, fetchVatReturn])
 
+  // After DB changes outside the app (e.g. psql migration), refetch when user returns to this tab
+  useEffect(() => {
+    let t
+    const debounced = () => {
+      clearTimeout(t)
+      t = setTimeout(() => {
+        if (document.visibilityState === 'visible' && fromDate && toDate) fetchVatReturn(fromDate, toDate)
+      }, 400)
+    }
+    document.addEventListener('visibilitychange', debounced)
+    window.addEventListener('focus', debounced)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('visibilitychange', debounced)
+      window.removeEventListener('focus', debounced)
+    }
+  }, [fromDate, toDate, fetchVatReturn])
+
   const handlePeriodPreset = (preset) => {
     if (preset.startsWith('Q')) {
       const q = parseInt(preset.slice(1), 10)

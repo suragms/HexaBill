@@ -165,6 +165,12 @@ namespace HexaBill.Api.Modules.Reports
                     net = Math.Round(s.GrandTotal / 1.05m, 2);
                     vat = Math.Round(s.GrandTotal - net, 2);
                 }
+                // FIX: Zayoga-style migration stored VAT-inclusive gross in Subtotal with VatTotal=0 (Subtotal≈GrandTotal)
+                else if (isStandard && vat == 0 && s.GrandTotal > 0 && Math.Abs(s.Subtotal - s.GrandTotal) < 0.01m)
+                {
+                    net = VatCalculator.Round(s.GrandTotal / (1m + VatCalculator.StandardRate));
+                    vat = VatCalculator.Round(s.GrandTotal - net);
+                }
                 if (isStandard)
                 {
                     standardRatedCount++;

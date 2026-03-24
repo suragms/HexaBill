@@ -96,6 +96,15 @@ else
 
 Console.WriteLine("✅ Using PostgreSQL connection from .env");
 
+// CSV invoice AMOUNT is VAT-inclusive (UAE 5%); align with SaleService / VatCalculator rounding.
+static (decimal Net, decimal Vat) SplitVatInclusiveUae(decimal grossInclusive)
+{
+    const decimal r = 0.05m;
+    var net = Math.Round(grossInclusive / (1m + r), 2, MidpointRounding.AwayFromZero);
+    var vat = Math.Round(grossInclusive - net, 2, MidpointRounding.AwayFromZero);
+    return (net, vat);
+}
+
 // Load migration JSON
 var dataPath = Path.Combine(apiDir, "Scripts", "ZayogaMigration", "ZayogaMigrationData.json");
 if (!File.Exists(dataPath))
@@ -382,7 +391,8 @@ await using (var tx = await conn.BeginTransactionAsync())
         else if (amountPaid > 0 && balance > 0)
             paymentStatus = "Partial";
 
-        // Insert Sale (using GrandTotal/TotalAmount = amount; Subtotal=amount, VatTotal=0)
+        // Insert Sale: amount is VAT-inclusive; Subtotal=net, VatTotal=VAT, GrandTotal=gross (unchanged)
+        var (saleNet, saleVat) = totalAmount > 0 ? SplitVatInclusiveUae(totalAmount) : (0m, 0m);
         await using (var insertSale = new NpgsqlCommand(@"
 INSERT INTO ""Sales""
 (""OwnerId"", ""TenantId"", ""InvoiceNo"", ""InvoiceDate"", ""CustomerId"", ""BranchId"", ""RouteId"",
@@ -405,8 +415,8 @@ RETURNING ""Id"";", conn, tx))
             insertSale.Parameters.AddWithValue("invNo", invNo);
             insertSale.Parameters.AddWithValue("invDate", invoiceDate);
             insertSale.Parameters.AddWithValue("customerId", customerId);
-            insertSale.Parameters.AddWithValue("subtotal", totalAmount);
-            insertSale.Parameters.AddWithValue("vatTotal", 0m);
+            insertSale.Parameters.AddWithValue("subtotal", saleNet);
+            insertSale.Parameters.AddWithValue("vatTotal", saleVat);
             insertSale.Parameters.AddWithValue("grandTotal", totalAmount);
             insertSale.Parameters.AddWithValue("paidAmount", amountPaid);
             insertSale.Parameters.AddWithValue("paymentStatus", paymentStatus);
@@ -424,11 +434,13 @@ RETURNING ""Id"";", conn, tx))
                 await using var insertItem = new NpgsqlCommand(@"
 INSERT INTO ""SaleItems""
 (""SaleId"", ""ProductId"", ""UnitType"", ""Qty"", ""UnitPrice"", ""Discount"", ""VatAmount"", ""LineTotal"", ""VatRate"", ""VatScenario"")
-VALUES (@saleId, @productId, 'PIECE', 1, @unitPrice, 0, 0, @lineTotal, 0, 'Standard');", conn, tx);
+VALUES (@saleId, @productId, 'PIECE', 1, @unitPrice, 0, @lineVat, @lineTotal, @vatRate, 'Standard');", conn, tx);
                 insertItem.Parameters.AddWithValue("saleId", saleId);
                 insertItem.Parameters.AddWithValue("productId", firstProductId);
-                insertItem.Parameters.AddWithValue("unitPrice", totalAmount);
+                insertItem.Parameters.AddWithValue("unitPrice", saleNet);
+                insertItem.Parameters.AddWithValue("lineVat", saleVat);
                 insertItem.Parameters.AddWithValue("lineTotal", totalAmount);
+                insertItem.Parameters.AddWithValue("vatRate", 0.05m);
                 await insertItem.ExecuteNonQueryAsync();
             }
 
