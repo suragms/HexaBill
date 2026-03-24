@@ -42,14 +42,16 @@ namespace HexaBill.Api.Modules.Billing
             [FromQuery] int pageSize = 10,
             [FromQuery] string? search = null,
             [FromQuery] int? branchId = null,
-            [FromQuery] int? routeId = null)
+            [FromQuery] int? routeId = null,
+            [FromQuery] DateTime? fromDate = null,
+            [FromQuery] DateTime? toDate = null)
         {
             try
             {
                 var tenantId = CurrentTenantId; // CRITICAL: Get from JWT
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
                 var role = User.FindFirst(ClaimTypes.Role)?.Value;
-                var result = await _saleService.GetSalesAsync(tenantId, page, pageSize, search, branchId, routeId, userId, role);
+                var result = await _saleService.GetSalesAsync(tenantId, page, pageSize, search, branchId, routeId, userId, role, fromDate, toDate);
                 return Ok(new ApiResponse<PagedResponse<SaleDto>>
                 {
                     Success = true,

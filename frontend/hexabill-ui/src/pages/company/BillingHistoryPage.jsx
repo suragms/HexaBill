@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Search, 
   Eye, 
@@ -28,9 +29,9 @@ import ConfirmDangerModal from '../../components/ConfirmDangerModal'
 
 const BillingHistoryPage = () => {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [sales, setSales] = useState([])
-  const [filteredSales, setFilteredSales] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -52,10 +53,6 @@ const BillingHistoryPage = () => {
     // Filters don't trigger auto-fetch - use Apply Filter button
   }, [currentPage, pageSize])
 
-  useEffect(() => {
-    filterSales()
-  }, [sales, searchTerm])
-
   // Listen for data update events to refresh when payments are made
   useEffect(() => {
     const handleDataUpdate = () => {
@@ -73,18 +70,15 @@ const BillingHistoryPage = () => {
     try {
       setLoading(true)
       
-      // Build query parameters
       const params = {
         page: currentPage,
         pageSize: pageSize
       }
       
-      // Add search if exists
       if (searchTerm.trim()) {
         params.search = searchTerm.trim()
       }
       
-      // Add date filters if set
       if (dateFilter.from) {
         params.fromDate = dateFilter.from
       }
@@ -96,42 +90,36 @@ const BillingHistoryPage = () => {
       
       if (response.success && response.data) {
         setSales(response.data.items || [])
-        setFilteredSales(response.data.items || [])
         setTotalCount(response.data.totalCount || 0)
         setTotalPages(response.data.totalPages || 1)
       } else {
+        setSales([])
+        setTotalCount(0)
+        setTotalPages(1)
         toast.error(response.message || 'Failed to load billing history')
       }
     } catch (error) {
       console.error('Error fetching sales:', error)
-      toast.error(error.message || 'Failed to load billing history')
+      const msg =
+        error?.response?.data?.message ||
+        error?.response?.data?.errors?.[0] ||
+        error?.message ||
+        'Failed to load billing history'
+      toast.error(msg)
+      setSales([])
+      setTotalCount(0)
+      setTotalPages(1)
     } finally {
       setLoading(false)
     }
   }
 
-  const filterSales = () => {
-    if (!searchTerm.trim()) {
-      setFilteredSales(sales)
-      return
-    }
-
-    const term = searchTerm.toLowerCase()
-    const filtered = sales.filter(sale => 
-      sale.invoiceNo?.toLowerCase().includes(term) ||
-      sale.customerName?.toLowerCase().includes(term) ||
-      sale.id?.toString().includes(term)
-    )
-    setFilteredSales(filtered)
-  }
-
   const handleSearch = (e) => {
     e.preventDefault()
-    setCurrentPage(1)
-    fetchSales()
-  }
-
-  const handleDateFilter = () => {
+    if (dateFilter.from && dateFilter.to && dateFilter.from > dateFilter.to) {
+      toast.error('From date must be on or before To date')
+      return
+    }
     setCurrentPage(1)
     fetchSales()
   }
@@ -161,7 +149,6 @@ const BillingHistoryPage = () => {
       if (response.success) {
         toast.success('Invoice deleted successfully!', { id: 'invoice-delete', duration: 4000 })
         setSales(prev => prev.filter(s => s.id !== saleId))
-        setFilteredSales(prev => prev.filter(s => s.id !== saleId))
         setTotalCount(prev => Math.max(0, prev - 1))
       } else {
         toast.error(response.message || 'Failed to delete invoice', { id: 'invoice-delete' })
@@ -173,8 +160,7 @@ const BillingHistoryPage = () => {
   }
 
   const handleEditSale = (sale) => {
-    // Navigate to POS page with sale ID for editing
-    window.open(`/pos?editId=${sale.id}`, '_blank')
+    navigate(`/pos?editId=${sale.id}`)
   }
 
   const toggleSelectInvoice = (saleId) => {
@@ -188,10 +174,10 @@ const BillingHistoryPage = () => {
   }
 
   const toggleSelectAll = () => {
-    if (selectedInvoices.length === filteredSales.length) {
+    if (selectedInvoices.length === sales.length) {
       setSelectedInvoices([])
     } else {
-      setSelectedInvoices(filteredSales.map(sale => sale.id))
+      setSelectedInvoices(sales.map(sale => sale.id))
     }
   }
 
@@ -215,28 +201,34 @@ const BillingHistoryPage = () => {
       window.URL.revokeObjectURL(url)
       
       toast.dismiss()
-        toast.success(`Combined PDF generated for ${selectedInvoices.length} invoice(s)`, { id: 'combined-pdf', duration: 4000 })
+      toast.success(`Combined PDF generated for ${selectedInvoices.length} invoice(s)`, { id: 'combined-pdf', duration: 4000 })
       setSelectedInvoices([])
     } catch (error) {
       toast.dismiss()
       console.error('Failed to generate combined PDF:', error)
-        toast.error(error.message || 'Failed to generate combined PDF', { id: 'combined-pdf' })
+      const msg =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to generate combined PDF'
+      toast.error(msg, { id: 'combined-pdf' })
     }
   }
 
   const formatDate = (dateString) => {
-    if (!dateString) return '-'
+    if (!dateString) return '—'
     try {
       const date = new Date(dateString)
-      return date.toLocaleDateString('en-GB', { 
-        day: '2-digit', 
-        month: 'short', 
+      if (Number.isNaN(date.getTime())) return '—'
+      return date.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
         year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        hour12: false
       })
     } catch {
-      return dateString
+      return '—'
     }
   }
 
@@ -354,7 +346,7 @@ const BillingHistoryPage = () => {
               )}
             </div>
             <div className="text-sm text-gray-500">
-              Showing {filteredSales.length} of {totalCount} invoices
+              Showing {sales.length} of {totalCount} invoices
             </div>
           </div>
         </form>
@@ -362,7 +354,7 @@ const BillingHistoryPage = () => {
 
       {/* Sales Table */}
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        {filteredSales.length === 0 ? (
+        {sales.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="mx-auto h-12 w-12 text-gray-400" />
             <h3 className="mt-2 text-sm font-medium text-gray-900">No invoices found</h3>
@@ -384,7 +376,7 @@ const BillingHistoryPage = () => {
                         onClick={toggleSelectAll}
                         className="text-gray-500 hover:text-gray-700"
                       >
-                        {selectedInvoices.length === filteredSales.length && filteredSales.length > 0 ? (
+                        {selectedInvoices.length === sales.length && sales.length > 0 ? (
                           <CheckSquare className="h-5 w-5" />
                         ) : (
                           <Square className="h-5 w-5" />
@@ -412,14 +404,14 @@ const BillingHistoryPage = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider sticky right-0 z-20 bg-gray-50 shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.15)]">
                       Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredSales.map((sale) => (
-                    <tr key={sale.id} className="hover:bg-gray-50">
+                  {sales.map((sale) => (
+                    <tr key={sale.id} className="group hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <button
                           onClick={() => toggleSelectInvoice(sale.id)}
@@ -461,7 +453,7 @@ const BillingHistoryPage = () => {
                           {getPaymentStatusText(sale.paymentStatus)}
                         </span>
                       </td>
-                      <td className="px-4 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-right text-xs sm:text-sm font-medium">
+                      <td className="px-4 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-right text-xs sm:text-sm font-medium sticky right-0 z-10 bg-white group-hover:bg-gray-50 shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.08)]">
                         <div className="flex items-center justify-end gap-1.5 sm:gap-2">
                           <button
                             onClick={() => handleViewInvoice(sale)}
@@ -501,7 +493,7 @@ const BillingHistoryPage = () => {
 
             {/* Mobile Cards */}
             <div className="md:hidden divide-y divide-gray-200">
-              {filteredSales.map((sale) => (
+              {sales.map((sale) => (
                 <div key={sale.id} className="p-4 space-y-3">
                   <div className="flex items-start justify-between">
                     <div>
@@ -520,7 +512,7 @@ const BillingHistoryPage = () => {
                     <div>
                       <div className="text-gray-500">Customer</div>
                       <div className="font-medium text-gray-900">
-                        {sale.customerName || 'Walk-in Customer'}
+                        {sale.customerName || 'Cash Customer'}
                       </div>
                     </div>
                     <div>

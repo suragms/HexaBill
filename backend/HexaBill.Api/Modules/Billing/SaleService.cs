@@ -23,7 +23,7 @@ namespace HexaBill.Api.Modules.Billing
     public interface ISaleService
     {
         // MULTI-TENANT: All methods now require tenantId for data isolation. Optional branchId/routeId filter; staff scope applied when userId and role provided.
-        Task<PagedResponse<SaleDto>> GetSalesAsync(int tenantId, int page = 1, int pageSize = 10, string? search = null, int? branchId = null, int? routeId = null, int? userIdForStaff = null, string? roleForStaff = null);
+        Task<PagedResponse<SaleDto>> GetSalesAsync(int tenantId, int page = 1, int pageSize = 10, string? search = null, int? branchId = null, int? routeId = null, int? userIdForStaff = null, string? roleForStaff = null, DateTime? fromDate = null, DateTime? toDate = null);
         Task<SaleDto?> GetSaleByIdAsync(int id, int tenantId, HashSet<int>? allowedRouteIdsForStaff = null);
         Task<SaleDto> CreateSaleAsync(CreateSaleRequest request, int userId, int tenantId);
         Task<SaleDto> CreateSaleWithOverrideAsync(CreateSaleRequest request, string reason, int userId, int tenantId);
@@ -87,7 +87,7 @@ namespace HexaBill.Api.Modules.Billing
             _salesSchema = salesSchema;
         }
 
-        public async Task<PagedResponse<SaleDto>> GetSalesAsync(int tenantId, int page = 1, int pageSize = 10, string? search = null, int? branchId = null, int? routeId = null, int? userIdForStaff = null, string? roleForStaff = null)
+        public async Task<PagedResponse<SaleDto>> GetSalesAsync(int tenantId, int page = 1, int pageSize = 10, string? search = null, int? branchId = null, int? routeId = null, int? userIdForStaff = null, string? roleForStaff = null, DateTime? fromDate = null, DateTime? toDate = null)
         {
             try
             {
@@ -139,11 +139,25 @@ namespace HexaBill.Api.Modules.Billing
                                            (s.Customer != null && s.Customer.Name.Contains(search)));
                 }
 
+                if (fromDate.HasValue)
+                {
+                    var from = fromDate.Value.Date;
+                    query = query.Where(s => s.InvoiceDate >= from);
+                }
+
+                if (toDate.HasValue)
+                {
+                    var toExclusive = toDate.Value.Date.AddDays(1);
+                    query = query.Where(s => s.InvoiceDate < toExclusive);
+                }
+
                 var totalCount = await query.CountAsync();
                 
                 // Load into memory first to avoid database column issues
+                // Newest invoices first; Id tie-breaker when InvoiceDate is identical (batch imports / same second)
                 var salesList = await query
                     .OrderByDescending(s => s.InvoiceDate)
+                    .ThenByDescending(s => s.Id)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
                     .ToListAsync();
