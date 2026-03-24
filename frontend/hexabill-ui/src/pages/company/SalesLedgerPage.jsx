@@ -33,6 +33,18 @@ function normalizeLedgerRowType(raw) {
   return ''
 }
 
+/** Payment rows share saleId with the invoice; keys must be unique per row (React reconciliation). */
+function ledgerRowKey(entry, idx) {
+  const t = normalizeLedgerRowType(entry.type)
+  if (t === 'Payment' && entry.paymentId) return `pay-${entry.paymentId}`
+  if (t === 'Sale' && entry.saleId) return `sale-${entry.saleId}`
+  if (t === 'Return' && entry.returnId != null) return `ret-${entry.returnId}`
+  if (entry.paymentId) return `pay-${entry.paymentId}`
+  if (entry.saleId) return `sale-${entry.saleId}`
+  if (entry.returnId != null) return `ret-${entry.returnId}`
+  return `row-${idx}`
+}
+
 function timeMs(d) {
   const n = new Date(d).getTime()
   return Number.isFinite(n) ? n : 0
@@ -261,6 +273,7 @@ const SalesLedgerPage = () => {
       if (filters.branchId) params.branchId = parseInt(filters.branchId, 10)
       if (filters.routeId) params.routeId = parseInt(filters.routeId, 10)
       if (filters.staffId) params.staffId = parseInt(filters.staffId, 10)
+      if (filters.type) params.entryType = filters.type
       const ledgerResponse = await reportsAPI.getComprehensiveSalesLedger(params)
 
       if (ledgerResponse?.success && ledgerResponse?.data) {
@@ -310,10 +323,10 @@ const SalesLedgerPage = () => {
     fetchSalesLedgerRef.current = fetchSalesLedger
   })
 
-  // Refresh data when date range or server-side filters change
+  // Refresh data when date range or server-side filters change (entryType = Type filter)
   useEffect(() => {
     fetchSalesLedger()
-  }, [dateRange, filters.branchId, filters.routeId, filters.staffId])
+  }, [dateRange, filters.branchId, filters.routeId, filters.staffId, filters.type])
   
   // Client-side filters (date, name, type, status, invoiceNo) are applied in getFilteredLedger()
   // These don't require API refresh, but we should ensure filteredLedger updates when filters change
@@ -1212,7 +1225,7 @@ const SalesLedgerPage = () => {
                       const customerBalance = entry.type === 'Sale' ? (entry.realPending ?? 0) : (entry.customerBalance ?? 0)
 
                       rows.push(
-                        <tr key={entry.saleId ? `sale-${entry.saleId}` : entry.paymentId ? `pay-${entry.paymentId}` : entry.returnId ? `ret-${entry.returnId}` : `row-${idx}`} className={rowBgColor}>
+                        <tr key={ledgerRowKey(entry, idx)} className={rowBgColor}>
                         <td className="px-2 lg:px-3 py-1.5 lg:py-2 whitespace-nowrap text-xs lg:text-sm text-gray-900 border-r border-gray-200">
                           {dateStr}
                         </td>
@@ -1448,7 +1461,7 @@ const SalesLedgerPage = () => {
                         : 'bg-gray-100 text-gray-800'
 
                 return (
-                  <React.Fragment key={idx}>
+                  <React.Fragment key={ledgerRowKey(entry, idx)}>
                     {isNewCustomer && idx > 0 && showGroupedSubtotals && (customerGroups.length > 1 || isCustomerFiltered) && (() => {
                       const prevCustomerName = displayedLedger[idx - 1].customerName || 'Cash Customer'
                       const prevCustomerGroup = customerGroups.find(g => g.customerName === prevCustomerName)

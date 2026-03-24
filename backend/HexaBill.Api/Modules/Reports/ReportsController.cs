@@ -1436,14 +1436,15 @@ namespace HexaBill.Api.Modules.Reports
             [FromQuery] DateTime? toDate = null,
             [FromQuery] int? branchId = null,
             [FromQuery] int? routeId = null,
-            [FromQuery] int? staffId = null)
+            [FromQuery] int? staffId = null,
+            [FromQuery] string? entryType = null)
         {
             try
             {
                 var tenantId = CurrentTenantId;
                 var userId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (int?)null;
                 var role = User.FindFirst(ClaimTypes.Role)?.Value;
-                var result = await _reportService.GetComprehensiveSalesLedgerAsync(tenantId, fromDate, toDate, branchId, routeId, staffId, userId, role);
+                var result = await _reportService.GetComprehensiveSalesLedgerAsync(tenantId, fromDate, toDate, branchId, routeId, staffId, userId, role, entryType);
                 return Ok(new ApiResponse<SalesLedgerReportDto>
                 {
                     Success = true,

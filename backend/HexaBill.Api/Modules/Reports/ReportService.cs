@@ -34,7 +34,7 @@ namespace HexaBill.Api.Modules.Reports
         Task<StockReportDto> GetStockReportAsync(int tenantId, bool lowOnly = false);
         Task<List<ExpenseByCategoryDto>> GetExpensesByCategoryAsync(int tenantId, DateTime fromDate, DateTime toDate, int? branchId = null);
         Task<List<SalesVsExpensesDto>> GetSalesVsExpensesAsync(int tenantId, DateTime fromDate, DateTime toDate, string groupBy = "day");
-        Task<SalesLedgerReportDto> GetComprehensiveSalesLedgerAsync(int tenantId, DateTime? fromDate = null, DateTime? toDate = null, int? branchId = null, int? routeId = null, int? staffId = null, int? userIdForStaff = null, string? roleForStaff = null);
+        Task<SalesLedgerReportDto> GetComprehensiveSalesLedgerAsync(int tenantId, DateTime? fromDate = null, DateTime? toDate = null, int? branchId = null, int? routeId = null, int? staffId = null, int? userIdForStaff = null, string? roleForStaff = null, string? entryType = null);
         Task<List<StaffPerformanceDto>> GetStaffPerformanceAsync(int tenantId, DateTime fromDate, DateTime toDate, int? routeId = null); // FIX: Add route filter parameter
         /// <summary>Worksheet report for Owner: sales, purchases, expenses, total received (payments in period), pending receivables.</summary>
         Task<WorksheetReportDto> GetWorksheetReportAsync(int tenantId, DateTime fromDate, DateTime toDate);
@@ -2352,7 +2352,7 @@ namespace HexaBill.Api.Modules.Reports
             finally { if (!wasOpen) await conn.CloseAsync(); }
         }
 
-        public async Task<SalesLedgerReportDto> GetComprehensiveSalesLedgerAsync(int tenantId, DateTime? fromDate = null, DateTime? toDate = null, int? branchId = null, int? routeId = null, int? staffId = null, int? userIdForStaff = null, string? roleForStaff = null)
+        public async Task<SalesLedgerReportDto> GetComprehensiveSalesLedgerAsync(int tenantId, DateTime? fromDate = null, DateTime? toDate = null, int? branchId = null, int? routeId = null, int? staffId = null, int? userIdForStaff = null, string? roleForStaff = null, string? entryType = null)
         {
             var from = (fromDate ?? DateTime.UtcNow.Date.AddDays(-365)).ToUtcKind();
             var to = (toDate ?? DateTime.UtcNow.Date).AddDays(1).AddTicks(-1).ToUtcKind();
@@ -2586,6 +2586,18 @@ namespace HexaBill.Api.Modules.Reports
                 .OrderBy(e => e.Date)
                 .ThenBy(e => e.Type == "Sale" ? 0 : e.Type == "Return" ? 1 : 2)
                 .ToList();
+
+            // Optional filter (UI Type dropdown): Sale / Payment / Return only
+            if (!string.IsNullOrWhiteSpace(entryType))
+            {
+                var et = entryType.Trim();
+                if (et.Equals("Sale", StringComparison.OrdinalIgnoreCase))
+                    ledgerEntries = ledgerEntries.Where(e => e.Type.Equals("Sale", StringComparison.OrdinalIgnoreCase)).ToList();
+                else if (et.Equals("Payment", StringComparison.OrdinalIgnoreCase))
+                    ledgerEntries = ledgerEntries.Where(e => e.Type.Equals("Payment", StringComparison.OrdinalIgnoreCase)).ToList();
+                else if (et.Equals("Return", StringComparison.OrdinalIgnoreCase))
+                    ledgerEntries = ledgerEntries.Where(e => e.Type.Equals("Return", StringComparison.OrdinalIgnoreCase)).ToList();
+            }
 
             // Calculate summary totals - CORRECTED CALCULATIONS
             // 1. Total Sales = Sum of GrandTotal from all sales in date range
