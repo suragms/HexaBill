@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
   Search, 
@@ -48,37 +48,19 @@ const BillingHistoryPage = () => {
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'owner'
   const canEdit = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'owner' // Admin and Owner can edit
 
-  useEffect(() => {
-    fetchSales()
-    // Filters don't trigger auto-fetch - use Apply Filter button
-  }, [currentPage, pageSize])
-
-  // Listen for data update events to refresh when payments are made
-  useEffect(() => {
-    const handleDataUpdate = () => {
-      fetchSales()
-    }
-    
-    window.addEventListener('dataUpdated', handleDataUpdate)
-    
-    return () => {
-      window.removeEventListener('dataUpdated', handleDataUpdate)
-    }
-  }, [])
-
-  const fetchSales = async () => {
+  const fetchSales = useCallback(async () => {
     try {
       setLoading(true)
-      
+
       const params = {
         page: currentPage,
         pageSize: pageSize
       }
-      
+
       if (searchTerm.trim()) {
         params.search = searchTerm.trim()
       }
-      
+
       if (dateFilter.from) {
         params.fromDate = dateFilter.from
       }
@@ -87,7 +69,7 @@ const BillingHistoryPage = () => {
       }
 
       const response = await salesAPI.getSales(params)
-      
+
       if (response.success && response.data) {
         setSales(response.data.items || [])
         setTotalCount(response.data.totalCount || 0)
@@ -112,7 +94,26 @@ const BillingHistoryPage = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentPage, pageSize, searchTerm, dateFilter])
+
+  const fetchSalesRef = useRef(fetchSales)
+  fetchSalesRef.current = fetchSales
+
+  // Pagination only — filters use Apply / search submit (not every keystroke)
+  useEffect(() => {
+    fetchSalesRef.current()
+  }, [currentPage, pageSize])
+
+  // After POS/payment updates: refresh with current page + filters (ref avoids stale closure from [])
+  useEffect(() => {
+    const handleDataUpdate = () => {
+      fetchSalesRef.current()
+    }
+    window.addEventListener('dataUpdated', handleDataUpdate)
+    return () => {
+      window.removeEventListener('dataUpdated', handleDataUpdate)
+    }
+  }, [])
 
   const handleSearch = (e) => {
     e.preventDefault()
@@ -404,6 +405,9 @@ const BillingHistoryPage = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" title="First cleared payment mode (Cash, Debit, …). Not the same as Paid/Partial.">
+                      Method
+                    </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider sticky right-0 z-20 bg-gray-50 shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.15)]">
                       Actions
                     </th>
@@ -452,6 +456,13 @@ const BillingHistoryPage = () => {
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPaymentStatusColor(sale.paymentStatus)}`}>
                           {getPaymentStatusText(sale.paymentStatus)}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {sale.primaryPaymentMode ? (
+                          <span title="Payment mode from first cleared line">{sale.primaryPaymentMode}</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="px-4 sm:px-6 py-3 sm:py-4 whitespace-nowrap text-right text-xs sm:text-sm font-medium sticky right-0 z-10 bg-white group-hover:bg-gray-50 shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.08)]">
                         <div className="flex items-center justify-end gap-1.5 sm:gap-2">
@@ -504,9 +515,14 @@ const BillingHistoryPage = () => {
                         {formatDate(sale.invoiceDate)}
                       </div>
                     </div>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPaymentStatusColor(sale.paymentStatus)}`}>
-                      {getPaymentStatusText(sale.paymentStatus)}
-                    </span>
+                    <div className="text-right">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPaymentStatusColor(sale.paymentStatus)}`}>
+                        {getPaymentStatusText(sale.paymentStatus)}
+                      </span>
+                      {sale.primaryPaymentMode && (
+                        <div className="text-xs text-gray-500 mt-1">Method: {sale.primaryPaymentMode}</div>
+                      )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>

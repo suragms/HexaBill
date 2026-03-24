@@ -163,12 +163,13 @@ export const productCategoriesAPI = {
 
 export const salesAPI = {
   getSales: async (params = {}) => {
-    const response = await api.get('/sales', { params })
+    // Sales change constantly; never serve stale list from GET cache (was hiding updated payment status).
+    const response = await api.get('/sales', { params, _bypassCache: true })
     return response.data
   },
 
   getSale: async (id) => {
-    const response = await api.get(`/sales/${id}`)
+    const response = await api.get(`/sales/${id}`, { _bypassCache: true })
     return response.data
   },
 

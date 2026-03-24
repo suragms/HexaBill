@@ -162,44 +162,79 @@ namespace HexaBill.Api.Modules.Billing
                     .Take(pageSize)
                     .ToListAsync();
 
-                var sales = salesList.Select(s => new SaleDto
+                var saleIds = salesList.Select(s => s.Id).ToList();
+                var primaryPaymentModeBySaleId = new Dictionary<int, string>();
+                var clearedSumBySaleId = new Dictionary<int, decimal>();
+                if (saleIds.Count > 0 && tenantId > 0)
                 {
-                    Id = s.Id,
-                    OwnerId = s.TenantId ?? 0, // CRITICAL: Must include tenantId for PDF generation (mapped to OwnerId for compatibility)
-                    InvoiceNo = s.InvoiceNo,
-                    InvoiceDate = s.InvoiceDate,
-                    CustomerId = s.CustomerId,
-                    CustomerName = s.Customer != null ? s.Customer.Name : null,
-                    Subtotal = s.Subtotal,
-                    VatTotal = s.VatTotal,
-                    Discount = s.Discount,
-                    RoundOff = s.RoundOff,
-                    GrandTotal = s.GrandTotal,
-                    PaymentStatus = s.PaymentStatus.ToString(),
-                    Notes = s.Notes,
-                    Items = s.Items.Select(i => new SaleItemDto
+                    var clearedRows = await _context.Payments.AsNoTracking()
+                        .Where(p => p.SaleId.HasValue && saleIds.Contains(p.SaleId.Value) && p.TenantId == tenantId && p.Status == PaymentStatus.CLEARED)
+                        .OrderBy(p => p.SaleId).ThenBy(p => p.Id)
+                        .Select(p => new { p.SaleId, p.Mode })
+                        .ToListAsync();
+                    foreach (var row in clearedRows)
                     {
-                        Id = i.Id,
-                        ProductId = i.ProductId,
-                        ProductName = i.Product?.NameEn ?? "Unknown",
-                        UnitType = i.UnitType,
-                        Qty = i.Qty,
-                        UnitPrice = i.UnitPrice,
-                        Discount = i.Discount,
-                        VatAmount = i.VatAmount,
-                        LineTotal = i.LineTotal
-                    }).ToList(),
-                    CreatedAt = s.CreatedAt,
-                    CreatedBy = s.CreatedByUser != null ? s.CreatedByUser.Name : "Unknown",
-                    Version = s.Version,
-                    IsLocked = s.IsLocked,
-                    LastModifiedAt = s.LastModifiedAt,
-                    LastModifiedBy = s.LastModifiedByUser != null ? s.LastModifiedByUser.Name : null,
-                    EditReason = s.EditReason,
-                    IsZeroInvoice = s.IsZeroInvoice,
-                    RowVersion = s.RowVersion != null && s.RowVersion.Length > 0 
-                        ? Convert.ToBase64String(s.RowVersion) 
-                        : null
+                        if (!row.SaleId.HasValue) continue;
+                        if (primaryPaymentModeBySaleId.ContainsKey(row.SaleId.Value)) continue;
+                        primaryPaymentModeBySaleId[row.SaleId.Value] = row.Mode.ToString();
+                    }
+
+                    var clearedAgg = await _context.Payments.AsNoTracking()
+                        .Where(p => p.SaleId.HasValue && saleIds.Contains(p.SaleId.Value) && p.TenantId == tenantId && p.Status == PaymentStatus.CLEARED)
+                        .GroupBy(p => p.SaleId!.Value)
+                        .Select(g => new { SaleId = g.Key, Total = g.Sum(x => x.Amount) })
+                        .ToListAsync();
+                    foreach (var row in clearedAgg)
+                        clearedSumBySaleId[row.SaleId] = row.Total;
+                }
+
+                var sales = salesList.Select(s =>
+                {
+                    var payState = SalePaymentHelpers.ComputeSalePaymentStateFromClearedTotal(
+                        clearedSumBySaleId.GetValueOrDefault(s.Id),
+                        s.GrandTotal,
+                        null);
+                    return new SaleDto
+                    {
+                        Id = s.Id,
+                        OwnerId = s.TenantId ?? 0, // CRITICAL: Must include tenantId for PDF generation (mapped to OwnerId for compatibility)
+                        InvoiceNo = s.InvoiceNo,
+                        InvoiceDate = s.InvoiceDate,
+                        CustomerId = s.CustomerId,
+                        CustomerName = s.Customer != null ? s.Customer.Name : null,
+                        Subtotal = s.Subtotal,
+                        VatTotal = s.VatTotal,
+                        Discount = s.Discount,
+                        RoundOff = s.RoundOff,
+                        GrandTotal = s.GrandTotal,
+                        PaidAmount = payState.PaidAmount,
+                        PaymentStatus = payState.Status.ToString(),
+                        PrimaryPaymentMode = primaryPaymentModeBySaleId.GetValueOrDefault(s.Id),
+                        Notes = s.Notes,
+                        Items = s.Items.Select(i => new SaleItemDto
+                        {
+                            Id = i.Id,
+                            ProductId = i.ProductId,
+                            ProductName = i.Product?.NameEn ?? "Unknown",
+                            UnitType = i.UnitType,
+                            Qty = i.Qty,
+                            UnitPrice = i.UnitPrice,
+                            Discount = i.Discount,
+                            VatAmount = i.VatAmount,
+                            LineTotal = i.LineTotal
+                        }).ToList(),
+                        CreatedAt = s.CreatedAt,
+                        CreatedBy = s.CreatedByUser != null ? s.CreatedByUser.Name : "Unknown",
+                        Version = s.Version,
+                        IsLocked = s.IsLocked,
+                        LastModifiedAt = s.LastModifiedAt,
+                        LastModifiedBy = s.LastModifiedByUser != null ? s.LastModifiedByUser.Name : null,
+                        EditReason = s.EditReason,
+                        IsZeroInvoice = s.IsZeroInvoice,
+                        RowVersion = s.RowVersion != null && s.RowVersion.Length > 0
+                            ? Convert.ToBase64String(s.RowVersion)
+                            : null
+                    };
                 }).ToList();
 
                 return new PagedResponse<SaleDto>
@@ -263,7 +298,82 @@ namespace HexaBill.Api.Modules.Billing
             if (allowedRouteIdsForStaff != null && (!sale.RouteId.HasValue || !allowedRouteIdsForStaff.Contains(sale.RouteId.Value)))
                 return null;
 
-            return MapSaleToDto(sale, sale.BranchId, sale.RouteId);
+            var dto = MapSaleToDto(sale, sale.BranchId, sale.RouteId);
+            await AttachPaymentsToSaleDtoAsync(dto, sale.Id, tenantId);
+            return dto;
+        }
+
+        private async Task AttachPaymentsToSaleDtoAsync(SaleDto dto, int saleId, int tenantId)
+        {
+            var rows = await _context.Payments.AsNoTracking()
+                .Where(p => p.SaleId == saleId && (tenantId <= 0 || p.TenantId == tenantId) && p.Status != PaymentStatus.VOID)
+                .OrderBy(p => p.Id)
+                .ToListAsync();
+            dto.Payments = rows.Select(p => new SalePaymentLineDto
+            {
+                Method = p.Mode.ToString(),
+                Amount = p.Amount,
+                Status = p.Status.ToString()
+            }).ToList();
+            dto.PrimaryPaymentMode = rows.FirstOrDefault(p => p.Status == PaymentStatus.CLEARED)?.Mode.ToString()
+                ?? rows.FirstOrDefault()?.Mode.ToString();
+
+            var clearedSum = rows.Where(p => p.Status == PaymentStatus.CLEARED).Sum(p => p.Amount);
+            var clearedOnly = rows.Where(p => p.Status == PaymentStatus.CLEARED).ToList();
+            DateTime? lastCleared = clearedOnly.Count > 0 ? clearedOnly.Max(p => p.PaymentDate) : null;
+            var state = SalePaymentHelpers.ComputeSalePaymentStateFromClearedTotal(clearedSum, dto.GrandTotal, lastCleared);
+            dto.PaidAmount = state.PaidAmount;
+            dto.PaymentStatus = state.Status.ToString();
+        }
+
+        private async Task ValidateSaleBranchAndRouteForRequestAsync(
+            CreateSaleRequest request,
+            int tenantId,
+            int userId,
+            Customer? customer)
+        {
+            if (request.RouteId.HasValue)
+            {
+                var route = await _context.Routes.FirstOrDefaultAsync(r => r.Id == request.RouteId.Value && r.TenantId == tenantId);
+                if (route == null)
+                    throw new InvalidOperationException($"Route with ID {request.RouteId.Value} not found or does not belong to your tenant.");
+
+                if (request.BranchId.HasValue && route.BranchId != request.BranchId.Value)
+                {
+                    throw new InvalidOperationException(
+                        $"Sale belongs to Branch {request.BranchId.Value}, but Route {request.RouteId.Value} belongs to Branch {route.BranchId}. " +
+                        "Sale and Route must belong to the same Branch.");
+                }
+
+                if (customer != null && customer.RouteId.HasValue && customer.RouteId.Value != request.RouteId.Value)
+                {
+                    throw new InvalidOperationException(
+                        $"Customer {customer.Id} belongs to Route {customer.RouteId.Value}, but Sale is being assigned to Route {request.RouteId.Value}. " +
+                        "Customer and Sale must belong to the same Route.");
+                }
+            }
+
+            var creatingUser = await _context.Users.AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
+            var userRole = creatingUser?.Role.ToString() ?? "";
+            if (request.RouteId.HasValue && tenantId > 0 &&
+                userRole.Equals("Staff", StringComparison.OrdinalIgnoreCase))
+            {
+                var allowedRouteIds = await _routeScopeService.GetRestrictedRouteIdsAsync(userId, tenantId, userRole);
+                if (allowedRouteIds != null && allowedRouteIds.Length > 0)
+                {
+                    if (!allowedRouteIds.Contains(request.RouteId.Value))
+                    {
+                        throw new UnauthorizedAccessException(
+                            "You can only create invoices for routes assigned to you. The selected route is not in your assigned routes.");
+                    }
+                }
+                else
+                {
+                    throw new UnauthorizedAccessException(
+                        "You have no routes assigned. Contact your admin to get route access.");
+                }
+            }
         }
 
         private async Task<SaleDto?> GetSaleByIdProjectionAsync(int id, int tenantId)
@@ -284,6 +394,7 @@ namespace HexaBill.Api.Modules.Billing
                     s.Discount,
                     s.RoundOff,
                     s.GrandTotal,
+                    s.PaidAmount,
                     s.PaymentStatus,
                     s.Notes,
                     s.CreatedAt,
@@ -311,7 +422,7 @@ namespace HexaBill.Api.Modules.Billing
                 ? await _context.Users.AsNoTracking().Where(u => u.Id == header.LastModifiedBy!.Value).Select(u => new { u.Name }).FirstOrDefaultAsync()
                 : null;
 
-            return new SaleDto
+            var dto = new SaleDto
             {
                 Id = header.Id,
                 OwnerId = header.TenantId ?? 0,
@@ -326,6 +437,7 @@ namespace HexaBill.Api.Modules.Billing
                 Discount = header.Discount,
                 RoundOff = header.RoundOff,
                 GrandTotal = header.GrandTotal,
+                PaidAmount = header.PaidAmount,
                 PaymentStatus = header.PaymentStatus.ToString(),
                 Notes = header.Notes,
                 Items = items.Select(i => new SaleItemDto
@@ -350,6 +462,8 @@ namespace HexaBill.Api.Modules.Billing
                 IsZeroInvoice = header.IsZeroInvoice,
                 RowVersion = header.RowVersion != null && header.RowVersion.Length > 0 ? Convert.ToBase64String(header.RowVersion) : null
             };
+            await AttachPaymentsToSaleDtoAsync(dto, id, tenantId);
+            return dto;
         }
 
         private static SaleDto MapSaleToDto(Sale sale, int? branchId, int? routeId)
@@ -369,6 +483,7 @@ namespace HexaBill.Api.Modules.Billing
                 Discount = sale.Discount,
                 RoundOff = sale.RoundOff,
                 GrandTotal = sale.GrandTotal,
+                PaidAmount = sale.PaidAmount,
                 PaymentStatus = sale.PaymentStatus.ToString(),
                 Notes = sale.Notes,
                 Items = sale.Items.Select(i => new SaleItemDto
@@ -492,6 +607,7 @@ namespace HexaBill.Api.Modules.Billing
                     {
                         _logger.LogWarning("Duplicate external reference detected: {Ref}. Returning existing sale ID: {Id}", request.ExternalReference, existingSale.Id);
                         await transaction.CommitAsync();
+                        await ReconcileSalePaymentStatusAsync(existingSale.Id, tenantId);
                         return await GetSaleByIdAsync(existingSale.Id, tenantId);
                     }
                 }
@@ -548,53 +664,7 @@ namespace HexaBill.Api.Modules.Billing
                     }
                 }
 
-                // PROD-12: Validate Route belongs to tenant and Branch if RouteId provided
-                if (request.RouteId.HasValue)
-                {
-                    var route = await _context.Routes.FirstOrDefaultAsync(r => r.Id == request.RouteId.Value && r.TenantId == tenantId);
-                    if (route == null)
-                        throw new InvalidOperationException($"Route with ID {request.RouteId.Value} not found or does not belong to your tenant.");
-                    
-                    // PROD-12: Validate Route.BranchId matches Sale.BranchId if BranchId provided
-                    if (request.BranchId.HasValue && route.BranchId != request.BranchId.Value)
-                    {
-                        throw new InvalidOperationException(
-                            $"Sale belongs to Branch {request.BranchId.Value}, but Route {request.RouteId.Value} belongs to Branch {route.BranchId}. " +
-                            "Sale and Route must belong to the same Branch.");
-                    }
-                    
-                    // PROD-12: Validate Customer.RouteId matches Sale.RouteId if Customer has RouteId
-                    if (customer != null && customer.RouteId.HasValue && customer.RouteId.Value != request.RouteId.Value)
-                    {
-                        throw new InvalidOperationException(
-                            $"Customer {customer.Id} belongs to Route {customer.RouteId.Value}, but Sale is being assigned to Route {request.RouteId.Value}. " +
-                            "Customer and Sale must belong to the same Route.");
-                    }
-                }
-
-                // RISK-4 FIX: Staff route lock — validate Staff can only assign invoices to their assigned routes
-                var creatingUser = await _context.Users.AsNoTracking()
-                    .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
-                var userRole = creatingUser?.Role.ToString() ?? "";
-                if (request.RouteId.HasValue && tenantId > 0 &&
-                    userRole.Equals("Staff", StringComparison.OrdinalIgnoreCase))
-                {
-                    var allowedRouteIds = await _routeScopeService.GetRestrictedRouteIdsAsync(userId, tenantId, userRole);
-                    if (allowedRouteIds != null && allowedRouteIds.Length > 0)
-                    {
-                        if (!allowedRouteIds.Contains(request.RouteId.Value))
-                        {
-                            throw new UnauthorizedAccessException(
-                                "You can only create invoices for routes assigned to you. The selected route is not in your assigned routes.");
-                        }
-                    }
-                    else
-                    {
-                        // Staff with no assigned routes cannot assign any route
-                        throw new UnauthorizedAccessException(
-                            "You have no routes assigned. Contact your admin to get route access.");
-                    }
-                }
+                await ValidateSaleBranchAndRouteForRequestAsync(request, tenantId, userId, customer);
 
                 // Calculate totals — VAT% from company settings (tenant-scoped), not hardcoded. PRODUCTION_MASTER_TODO #37
                 var vatPercent = await GetVatPercentAsync(tenantId);
@@ -795,16 +865,30 @@ namespace HexaBill.Api.Modules.Billing
                 // CRITICAL: Stock is decremented in this transaction (lines 276-290)
                 // IsFinalized = true means stock has been decremented and invoice is finalized
                 
-                // CASH CUSTOMER LOGIC: If no customer ID (cash customer), auto-mark as paid with cash payment
+                // CASH CUSTOMER LOGIC: implicit paid only when there are no payment rows (rows drive state otherwise)
                 bool isCashCustomer = !request.CustomerId.HasValue;
                 decimal initialPaidAmount = 0;
                 SalePaymentStatus initialPaymentStatus = SalePaymentStatus.Pending;
-                
-                if (isCashCustomer)
+
+                if (grandTotal <= 0m)
                 {
-                    // Cash customer = instant payment, mark as paid immediately
+                    initialPaidAmount = 0;
+                    initialPaymentStatus = SalePaymentStatus.Paid;
+                }
+                else if (isCashCustomer && (request.Payments == null || !request.Payments.Any()))
+                {
                     initialPaidAmount = grandTotal;
                     initialPaymentStatus = SalePaymentStatus.Paid;
+                }
+                else if (isCashCustomer && request.Payments != null && request.Payments.Any())
+                {
+                    initialPaidAmount = 0;
+                    initialPaymentStatus = SalePaymentStatus.Pending;
+                }
+                else
+                {
+                    initialPaidAmount = 0;
+                    initialPaymentStatus = SalePaymentStatus.Pending;
                 }
                 
                 var sale = new Sale
@@ -853,7 +937,6 @@ namespace HexaBill.Api.Modules.Billing
                 _context.InventoryTransactions.AddRange(inventoryTransactions);
 
                 // Process payments if provided (e.g., cash/online payment at POS)
-                decimal totalPaid = 0;
                 if (request.Payments != null && request.Payments.Any())
                 {
                     // DUPLICATE CASH PAYMENT PREVENTION
@@ -879,11 +962,7 @@ namespace HexaBill.Api.Modules.Billing
                     {
                         if (paymentRequest.Amount <= 0) continue; // Payment amount must be greater than zero
                         var paymentMode = Enum.Parse<PaymentMode>(paymentRequest.Method.ToUpper());
-                        var paymentStatus = paymentMode == PaymentMode.CHEQUE 
-                            ? PaymentStatus.PENDING 
-                            : (paymentMode == PaymentMode.CASH || paymentMode == PaymentMode.ONLINE || paymentMode == PaymentMode.DEBIT 
-                                ? PaymentStatus.CLEARED 
-                                : PaymentStatus.PENDING);
+                        var paymentStatus = SalePaymentHelpers.GetPaymentLineStatus(paymentMode);
 
                         var paymentDate = DateTime.UtcNow;
                         
@@ -907,10 +986,8 @@ namespace HexaBill.Api.Modules.Billing
                         
                         _context.Payments.Add(payment);
                         await _context.SaveChangesAsync(); // Save to get payment ID generated
-                        
-                        totalPaid += paymentRequest.Amount;
-                        
-                        // Update invoice if payment is immediately cleared
+
+                        // Update invoice if payment is immediately cleared (cleared totals drive PaidAmount / status)
                         if (paymentStatus == PaymentStatus.CLEARED)
                         {
                             sale.PaidAmount += paymentRequest.Amount;
@@ -918,19 +995,13 @@ namespace HexaBill.Api.Modules.Billing
                         }
                     }
 
-                    // Update payment status based on total paid (zero invoice = nothing to pay, so Paid)
-                    if (grandTotal == 0 || totalPaid >= grandTotal)
-                    {
-                        sale.PaymentStatus = SalePaymentStatus.Paid;
-                    }
-                    else if (totalPaid > 0)
-                    {
-                        sale.PaymentStatus = SalePaymentStatus.Partial;
-                    }
-                    else
-                    {
-                        sale.PaymentStatus = SalePaymentStatus.Pending;
-                    }
+                    var payState = SalePaymentHelpers.ComputeSalePaymentStateFromClearedTotal(
+                        sale.PaidAmount,
+                        grandTotal,
+                        sale.LastPaymentDate);
+                    sale.PaidAmount = payState.PaidAmount;
+                    sale.PaymentStatus = payState.Status;
+                    sale.LastPaymentDate = payState.LastPaymentDate;
 
                     // Update customer balance if any payments are cleared
                     if (request.CustomerId.HasValue)
@@ -955,13 +1026,13 @@ namespace HexaBill.Api.Modules.Billing
                 }
                 else
                 {
-                    // No payment provided: zero-invoice = nothing to pay (Paid); otherwise Pending
-                    if (grandTotal == 0)
+                    // No payment rows: zero total = Paid; credit = Pending + balance; cash (implicit) = already Paid + full amount from initial sale row
+                    if (grandTotal <= 0m)
                     {
                         sale.PaymentStatus = SalePaymentStatus.Paid;
                         sale.PaidAmount = 0;
                     }
-                    else
+                    else if (!isCashCustomer)
                     {
                         sale.PaymentStatus = SalePaymentStatus.Pending;
                         sale.PaidAmount = 0;
@@ -997,6 +1068,9 @@ namespace HexaBill.Api.Modules.Billing
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
+
+                // Persist Sale.PaymentStatus/PaidAmount/LastPaymentDate from cleared payments (single rule; fixes drift vs reports)
+                await ReconcileSalePaymentStatusAsync(sale.Id, tenantId);
 
                 // ✅ REAL-TIME BALANCE UPDATE: Update customer balance after invoice creation
                 if (request.CustomerId.HasValue)
@@ -1190,16 +1264,23 @@ namespace HexaBill.Api.Modules.Billing
                     throw new InvalidOperationException("Round-off cannot exceed ±AED 1.00");
                 var grandTotal = Math.Round((subtotal + vatTotal - request.Discount + roundOffOverride), 2);
 
-                // CASH CUSTOMER LOGIC: If no customer ID (cash customer), auto-mark as paid with cash payment
                 bool isCashCustomerOverride = !request.CustomerId.HasValue;
                 decimal initialPaidAmountOverride = 0;
                 SalePaymentStatus initialPaymentStatusOverride = SalePaymentStatus.Pending;
-                
-                if (isCashCustomerOverride)
+                if (grandTotal <= 0m)
                 {
-                    // Cash customer = instant payment, mark as paid immediately
+                    initialPaidAmountOverride = 0;
+                    initialPaymentStatusOverride = SalePaymentStatus.Paid;
+                }
+                else if (isCashCustomerOverride)
+                {
                     initialPaidAmountOverride = grandTotal;
                     initialPaymentStatusOverride = SalePaymentStatus.Paid;
+                }
+                else if (request.Payments != null && request.Payments.Any())
+                {
+                    initialPaidAmountOverride = 0;
+                    initialPaymentStatusOverride = SalePaymentStatus.Pending;
                 }
 
                 var sale = new Sale
@@ -1241,12 +1322,9 @@ namespace HexaBill.Api.Modules.Billing
                 _context.InventoryTransactions.AddRange(inventoryTransactions);
 
                 // Process payments
-                decimal totalPaid = 0;
-                
                 // CASH CUSTOMER: Auto-create cash payment if no customer ID
-                if (isCashCustomerOverride)
+                if (isCashCustomerOverride && grandTotal > 0m)
                 {
-                    // Create automatic cash payment for cash customer
                     var cashPayment = new Payment
                     {
                         OwnerId = tenantId, // CRITICAL: Set legacy OwnerId
@@ -1262,17 +1340,15 @@ namespace HexaBill.Api.Modules.Billing
                         CreatedAt = DateTime.UtcNow
                     };
                     _context.Payments.Add(cashPayment);
-                    totalPaid = grandTotal;
+                    var stOvCash = SalePaymentHelpers.ComputeSalePaymentStateFromClearedTotal(grandTotal, grandTotal, DateTime.UtcNow);
+                    sale.PaidAmount = stOvCash.PaidAmount;
+                    sale.PaymentStatus = stOvCash.Status;
                 }
                 else if (request.Payments != null && request.Payments.Any())
                 {
                     var payments = request.Payments.Select(p => {
                         var paymentMode = Enum.Parse<PaymentMode>(p.Method.ToUpper());
-                        var paymentStatus = paymentMode == PaymentMode.CHEQUE 
-                            ? PaymentStatus.PENDING 
-                            : (paymentMode == PaymentMode.CASH || paymentMode == PaymentMode.ONLINE || paymentMode == PaymentMode.DEBIT 
-                                ? PaymentStatus.CLEARED 
-                                : PaymentStatus.PENDING);
+                        var paymentStatus = SalePaymentHelpers.GetPaymentLineStatus(paymentMode);
                         
                         return new Payment
                         {
@@ -1292,15 +1368,10 @@ namespace HexaBill.Api.Modules.Billing
 
                     _context.Payments.AddRange(payments);
 
-                    totalPaid = payments.Sum(p => p.Amount);
-                    if (totalPaid >= grandTotal)
-                    {
-                        sale.PaymentStatus = SalePaymentStatus.Paid;
-                    }
-                    else if (totalPaid > 0)
-                    {
-                        sale.PaymentStatus = SalePaymentStatus.Partial;
-                    }
+                    var clearedSumOv = payments.Where(p => p.Status == PaymentStatus.CLEARED).Sum(p => p.Amount);
+                    var stOv = SalePaymentHelpers.ComputeSalePaymentStateFromClearedTotal(clearedSumOv, grandTotal, DateTime.UtcNow);
+                    sale.PaidAmount = stOv.PaidAmount;
+                    sale.PaymentStatus = stOv.Status;
                 }
 
                 // Recalculate customer balance from all transactions (fixes fake balance issue)
@@ -1325,6 +1396,8 @@ namespace HexaBill.Api.Modules.Billing
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
+
+                await ReconcileSalePaymentStatusAsync(sale.Id, tenantId);
 
                 // Auto-backup after successful invoice save
                 try
@@ -1820,6 +1893,28 @@ namespace HexaBill.Api.Modules.Billing
                 saleForUpdate.Version = newVersion;
                 saleForUpdate.EditReason = editReason;
                 // InvoiceNo is NOT updated - preserve original invoice number
+
+                if (await _salesSchema.SalesHasBranchIdAndRouteIdAsync())
+                {
+                    Customer? customerForBranch = null;
+                    if (request.CustomerId.HasValue)
+                    {
+                        customerForBranch = await _context.Customers
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(c => c.Id == request.CustomerId.Value && c.TenantId == tenantId);
+                    }
+                    var mergedBranch = request.BranchId ?? existingSale.BranchId;
+                    var mergedRoute = request.RouteId ?? existingSale.RouteId;
+                    var branchValidateRequest = new CreateSaleRequest
+                    {
+                        BranchId = mergedBranch,
+                        RouteId = mergedRoute,
+                        CustomerId = request.CustomerId
+                    };
+                    await ValidateSaleBranchAndRouteForRequestAsync(branchValidateRequest, tenantId, userId, customerForBranch);
+                    saleForUpdate.BranchId = mergedBranch;
+                    saleForUpdate.RouteId = mergedRoute;
+                }
                 
                 // Add new sale items
                 _context.SaleItems.AddRange(newSaleItems);
@@ -1956,11 +2051,7 @@ namespace HexaBill.Api.Modules.Billing
                             throw new InvalidOperationException($"Invalid payment method: {p.Method}. Valid methods are: Cash, Cheque, Online, Credit, Debit");
                         }
                         
-                        var paymentStatus = paymentMode == PaymentMode.CHEQUE 
-                            ? PaymentStatus.PENDING 
-                            : (paymentMode == PaymentMode.CASH || paymentMode == PaymentMode.ONLINE || paymentMode == PaymentMode.DEBIT 
-                                ? PaymentStatus.CLEARED 
-                                : PaymentStatus.PENDING);
+                        var paymentStatus = SalePaymentHelpers.GetPaymentLineStatus(paymentMode);
                         
                         if (p.Amount <= 0)
                         {
@@ -1999,23 +2090,13 @@ namespace HexaBill.Api.Modules.Billing
                     // Save all payments at once
                     await _context.SaveChangesAsync();
 
-                    // Update sale payment status based on CLEARED payments only
-                    saleForUpdate.PaidAmount = totalPaidCleared;
-                    if (totalPaidCleared >= grandTotal)
-                    {
-                        saleForUpdate.PaymentStatus = SalePaymentStatus.Paid;
-                        saleForUpdate.LastPaymentDate = DateTime.UtcNow;
-                    }
-                    else if (totalPaidCleared > 0)
-                    {
-                        saleForUpdate.PaymentStatus = SalePaymentStatus.Partial;
-                        saleForUpdate.LastPaymentDate = DateTime.UtcNow;
-                    }
-                    else
-                    {
-                        saleForUpdate.PaymentStatus = SalePaymentStatus.Pending;
-                        saleForUpdate.LastPaymentDate = null;
-                    }
+                    var payStateUpdate = SalePaymentHelpers.ComputeSalePaymentStateFromClearedTotal(
+                        totalPaidCleared,
+                        grandTotal,
+                        DateTime.UtcNow);
+                    saleForUpdate.PaidAmount = payStateUpdate.PaidAmount;
+                    saleForUpdate.PaymentStatus = payStateUpdate.Status;
+                    saleForUpdate.LastPaymentDate = payStateUpdate.LastPaymentDate;
                     
                     _logger.LogInformation(
                         "CREDIT SALE with payments: Paid {Paid} of {GrandTotal}, Status={Status}",
@@ -2025,16 +2106,24 @@ namespace HexaBill.Api.Modules.Billing
                 }
                 else
                 {
-                    // ===== CREDIT SALE with NO PAYMENTS =====
-                    // Customer owes full amount
-                    saleForUpdate.PaymentStatus = SalePaymentStatus.Pending;
-                    saleForUpdate.PaidAmount = 0;
-                    saleForUpdate.LastPaymentDate = null;
-                    
+                    // ===== CREDIT SALE with NO PAYMENT ROWS (e.g. Pending / Credit invoice) =====
+                    if (grandTotal <= 0m)
+                    {
+                        saleForUpdate.PaymentStatus = SalePaymentStatus.Paid;
+                        saleForUpdate.PaidAmount = 0;
+                        saleForUpdate.LastPaymentDate = null;
+                    }
+                    else
+                    {
+                        saleForUpdate.PaymentStatus = SalePaymentStatus.Pending;
+                        saleForUpdate.PaidAmount = 0;
+                        saleForUpdate.LastPaymentDate = null;
+                    }
+
                     _logger.LogInformation(
-                        "CREDIT SALE (unpaid): Outstanding {GrandTotal}, Status={Status}",
+                        "CREDIT SALE no payment rows: GrandTotal={GrandTotal}, Status={Status}",
                         grandTotal,
-                        SalePaymentStatus.Pending);
+                        saleForUpdate.PaymentStatus);
                 }
                 
                 // STEP 4: Add new invoice to new customer's balance (if credit sale)
@@ -2131,6 +2220,8 @@ namespace HexaBill.Api.Modules.Billing
                 }
 
                 await transaction.CommitAsync();
+
+                await ReconcileSalePaymentStatusAsync(saleId, tenantId);
 
                 return await GetSaleByIdAsync(saleId, tenantId) ?? throw new InvalidOperationException("Failed to retrieve updated sale");
             }
@@ -2695,31 +2786,41 @@ namespace HexaBill.Api.Modules.Billing
                 
                 if (sale == null) return false;
                 
-                // Calculate actual paid amount from all non-VOID payments
+                // Cleared rows only — pending cheques do not count (same rule as list/detail DTOs)
                 var actualPaidAmount = await _context.Payments
-                    .Where(p => p.SaleId == saleId && p.TenantId == tenantId && p.Status != PaymentStatus.VOID)
+                    .Where(p => p.SaleId == saleId && p.TenantId == tenantId && p.Status == PaymentStatus.CLEARED)
                     .SumAsync(p => p.Amount);
-                
-                // Determine correct status
-                var correctStatus = actualPaidAmount >= sale.GrandTotal 
-                    ? SalePaymentStatus.Paid 
-                    : actualPaidAmount > 0 
-                        ? SalePaymentStatus.Partial 
-                        : SalePaymentStatus.Pending;
-                
-                // Update if different
-                if (sale.PaymentStatus != correctStatus || sale.PaidAmount != actualPaidAmount)
+
+                var lastClearedDate = await _context.Payments
+                    .AsNoTracking()
+                    .Where(p => p.SaleId == saleId && p.TenantId == tenantId && p.Status == PaymentStatus.CLEARED)
+                    .OrderByDescending(p => p.PaymentDate)
+                    .Select(p => (DateTime?)p.PaymentDate)
+                    .FirstOrDefaultAsync();
+
+                var reconciled = SalePaymentHelpers.ComputeSalePaymentStateFromClearedTotal(
+                    actualPaidAmount,
+                    sale.GrandTotal,
+                    lastClearedDate);
+                var correctStatus = reconciled.Status;
+                var correctedPaid = reconciled.PaidAmount;
+                var correctedLastPay = reconciled.LastPaymentDate;
+
+                if (sale.PaymentStatus != correctStatus
+                    || Math.Abs(sale.PaidAmount - correctedPaid) > 0.01m
+                    || !SalePaymentHelpers.LastPaymentDatesMatch(sale.LastPaymentDate, correctedLastPay))
                 {
                     var oldStatus = sale.PaymentStatus;
                     var oldPaidAmount = sale.PaidAmount;
-                    
+
                     sale.PaymentStatus = correctStatus;
-                    sale.PaidAmount = actualPaidAmount;
+                    sale.PaidAmount = correctedPaid;
+                    sale.LastPaymentDate = correctedLastPay;
                     sale.LastModifiedAt = DateTime.UtcNow;
-                    
+
                     await _context.SaveChangesAsync();
-                    
-                    Console.WriteLine($"✅ Reconciled Sale {sale.InvoiceNo}: Status {oldStatus}->{correctStatus}, PaidAmount {oldPaidAmount}->{actualPaidAmount}");
+
+                    Console.WriteLine($"✅ Reconciled Sale {sale.InvoiceNo}: Status {oldStatus}->{correctStatus}, PaidAmount {oldPaidAmount}->{correctedPaid}");
                 }
                 
                 return true;
@@ -2755,13 +2856,19 @@ namespace HexaBill.Api.Modules.Billing
                 
                 result.TotalSales = sales.Count;
                 
-                // Get all payment totals per sale
-                var paymentTotals = await _context.Payments
-                    .Where(p => p.TenantId == tenantId && p.SaleId.HasValue && p.Status != PaymentStatus.VOID)
+                // Cleared amounts only — must match SalePaymentHelpers / single-sale reconcile (pending cheques are not "paid" yet)
+                var clearedTotalsBySaleId = await _context.Payments
+                    .Where(p => p.TenantId == tenantId && p.SaleId.HasValue && p.Status == PaymentStatus.CLEARED)
                     .GroupBy(p => p.SaleId!.Value)
-                    .Select(g => new { SaleId = g.Key, TotalPaid = g.Sum(p => p.Amount), PaymentCount = g.Count() })
-                    .ToDictionaryAsync(x => x.SaleId, x => new { x.TotalPaid, x.PaymentCount });
-                
+                    .Select(g => new { SaleId = g.Key, TotalCleared = g.Sum(p => p.Amount) })
+                    .ToDictionaryAsync(x => x.SaleId, x => x.TotalCleared);
+
+                var lastClearedDateBySaleId = await _context.Payments
+                    .Where(p => p.TenantId == tenantId && p.SaleId.HasValue && p.Status == PaymentStatus.CLEARED)
+                    .GroupBy(p => p.SaleId!.Value)
+                    .Select(g => new { SaleId = g.Key, LastDt = g.Max(p => p.PaymentDate) })
+                    .ToDictionaryAsync(x => x.SaleId, x => (DateTime?)x.LastDt);
+
                 // Check for duplicate payments (same sale, same amount, within 1 minute)
                 var duplicates = await _context.Payments
                     .Where(p => p.TenantId == tenantId && p.SaleId.HasValue && p.Status != PaymentStatus.VOID)
@@ -2787,17 +2894,17 @@ namespace HexaBill.Api.Modules.Billing
                 {
                     try
                     {
-                        var paymentInfo = paymentTotals.GetValueOrDefault(sale.Id);
-                        var actualPaidAmount = paymentInfo?.TotalPaid ?? 0;
-                        
-                        // Determine correct status
-                        var correctStatus = actualPaidAmount >= sale.GrandTotal 
-                            ? SalePaymentStatus.Paid 
-                            : actualPaidAmount > 0 
-                                ? SalePaymentStatus.Partial 
-                                : SalePaymentStatus.Pending;
-                        
-                        // Check for overpayment
+                        var actualPaidAmount = clearedTotalsBySaleId.GetValueOrDefault(sale.Id);
+                        var lastCle = lastClearedDateBySaleId.GetValueOrDefault(sale.Id);
+                        var reconciledAll = SalePaymentHelpers.ComputeSalePaymentStateFromClearedTotal(
+                            actualPaidAmount,
+                            sale.GrandTotal,
+                            lastCle);
+                        var correctStatus = reconciledAll.Status;
+                        var correctedPaidAll = reconciledAll.PaidAmount;
+                        var correctedLastAll = reconciledAll.LastPaymentDate;
+
+                        // Check for overpayment (cleared sum exceeds invoice — unusual)
                         if (actualPaidAmount > sale.GrandTotal + 0.01m)
                         {
                             result.SalesWithOverpayment.Add(new OverpaymentInfo
@@ -2809,16 +2916,18 @@ namespace HexaBill.Api.Modules.Billing
                                 Overpayment = actualPaidAmount - sale.GrandTotal
                             });
                         }
-                        
-                        // Update if different
-                        if (sale.PaymentStatus != correctStatus || Math.Abs(sale.PaidAmount - actualPaidAmount) > 0.01m)
+
+                        if (sale.PaymentStatus != correctStatus
+                            || Math.Abs(sale.PaidAmount - correctedPaidAll) > 0.01m
+                            || !SalePaymentHelpers.LastPaymentDatesMatch(sale.LastPaymentDate, correctedLastAll))
                         {
-                            Console.WriteLine($"📋 Fixing Sale {sale.InvoiceNo}: Status {sale.PaymentStatus}->{correctStatus}, PaidAmount {sale.PaidAmount}->{actualPaidAmount}");
-                            
+                            Console.WriteLine($"📋 Fixing Sale {sale.InvoiceNo}: Status {sale.PaymentStatus}->{correctStatus}, PaidAmount {sale.PaidAmount}->{correctedPaidAll}");
+
                             sale.PaymentStatus = correctStatus;
-                            sale.PaidAmount = actualPaidAmount;
+                            sale.PaidAmount = correctedPaidAll;
+                            sale.LastPaymentDate = correctedLastAll;
                             sale.LastModifiedAt = DateTime.UtcNow;
-                            
+
                             result.SalesFixed++;
                         }
                     }

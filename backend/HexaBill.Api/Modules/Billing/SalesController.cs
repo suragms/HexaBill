@@ -452,13 +452,16 @@ namespace HexaBill.Api.Modules.Billing
                 var createRequest = new CreateSaleRequest
                 {
                     CustomerId = request.CustomerId,
+                    BranchId = request.BranchId,
+                    RouteId = request.RouteId,
                     Items = request.Items ?? new List<SaleItemRequest>(),
                     Discount = request.Discount,
                     RoundOff = request.RoundOff,
                     Notes = request.Notes,
                     Payments = request.Payments,
                     InvoiceDate = request.InvoiceDate,
-                    DueDate = request.DueDate
+                    DueDate = request.DueDate,
+                    IsZeroInvoice = request.IsZeroInvoice
                 };
                 
                 byte[]? rowVersion = null;
@@ -485,6 +488,14 @@ namespace HexaBill.Api.Modules.Billing
             }
             catch (InvalidOperationException ex)
             {
+                if (ex.Message.Contains("CONFLICT", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Conflict(new ApiResponse<SaleDto>
+                    {
+                        Success = false,
+                        Message = ex.Message
+                    });
+                }
                 return BadRequest(new ApiResponse<SaleDto>
                 {
                     Success = false,

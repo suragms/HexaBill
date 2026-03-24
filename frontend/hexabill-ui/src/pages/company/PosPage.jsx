@@ -36,6 +36,14 @@ import PrintOptionsModal from '../../components/PrintOptionsModal'
 import { getApiBaseUrl } from '../../services/apiConfig'
 const API_BASE_URL = getApiBaseUrl()
 
+/** Map API PaymentMode (e.g. CASH) to POS payment dropdown values (Cash, Debit, …). */
+function normalizeApiPaymentMethodToUi(method) {
+  if (!method) return 'Cash'
+  const u = String(method).toUpperCase()
+  const map = { CASH: 'Cash', CHEQUE: 'Cheque', ONLINE: 'Online', CREDIT: 'Credit', DEBIT: 'Debit' }
+  return map[u] || (String(method).charAt(0).toUpperCase() + String(method).slice(1).toLowerCase())
+}
+
 const PosPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -290,6 +298,13 @@ const PosPage = () => {
         setRoundOffInput(ro === 0 ? '' : ro.toString())
         if (sale.notes) setNotes(sale.notes)
 
+        if (sale.branchId != null && branches?.some(b => b.id === sale.branchId)) {
+          setSelectedBranchId(String(sale.branchId))
+        }
+        if (sale.routeId != null && routes?.some(r => r.id === sale.routeId)) {
+          setSelectedRouteId(String(sale.routeId))
+        }
+
         // Load cart items from sale
         if (sale.items && sale.items.length > 0) {
           const cartItems = sale.items.map(item => ({
@@ -305,11 +320,21 @@ const PosPage = () => {
           setCart(cartItems)
         }
 
-        // Set payment info if exists
+        // Payment method / amount (API returns PaymentMode like CASH; map to UI labels)
         if (sale.payments && sale.payments.length > 0) {
           const payment = sale.payments[0]
-          setPaymentMethod(payment.method || 'Cash')
-          setPaymentAmount(payment.amount?.toString() || '')
+          setPaymentMethod(normalizeApiPaymentMethodToUi(payment.method))
+          setPaymentAmount(payment.amount != null ? String(payment.amount) : '')
+        } else {
+          const st = (sale.paymentStatus || '').toLowerCase()
+          if (sale.customerId && (st === 'pending' || st === 'partial')) {
+            setPaymentMethod('Pending')
+            const out = (Number(sale.grandTotal) || 0) - (Number(sale.paidAmount) || 0)
+            setPaymentAmount(out > 0 ? String(out) : '')
+          } else {
+            setPaymentMethod('Cash')
+            setPaymentAmount('')
+          }
         }
 
         // Load invoice date from sale
@@ -335,7 +360,20 @@ const PosPage = () => {
     } finally {
       setLoadingSale(false)
     }
-  }, [customers, setSearchParams])
+  }, [customers, branches, routes, setSearchParams])
+
+  // When branches/routes load after opening edit, apply sale branch/route if not yet selected
+  useEffect(() => {
+    if (!isEditMode || !editingSale) return
+    const bid = editingSale.branchId
+    const rid = editingSale.routeId
+    if (bid != null && branches?.length && branches.some(b => b.id === bid)) {
+      setSelectedBranchId(String(bid))
+    }
+    if (rid != null && routes?.length && routes.some(r => r.id === rid)) {
+      setSelectedRouteId(String(rid))
+    }
+  }, [isEditMode, editingSale, branches, routes])
 
   useEffect(() => {
     loadProducts()
@@ -1103,7 +1141,10 @@ const PosPage = () => {
       if (paymentStatus === 'paid' || paymentStatus === 'partial') {
         // Store data and show confirmation modal
         const totals = calculateTotals()
-        
+        const routeIdNumConfirm = selectedRouteId ? parseInt(selectedRouteId, 10) : null
+        const selectedRouteConfirm = routeIdNumConfirm && routes?.length ? routes.find(r => Number(r.id) === routeIdNumConfirm) : null
+        const branchIdNumConfirm = selectedRouteConfirm?.branchId != null ? Number(selectedRouteConfirm.branchId) : (selectedBranchId ? parseInt(selectedBranchId, 10) : null)
+
         // Validate payment amount before showing confirmation
         if (paymentMethod !== 'Pending' && paymentAmount) {
           const paymentAmountNum = parseFloat(paymentAmount)
@@ -1141,7 +1182,9 @@ const PosPage = () => {
             : [],
           notes: notes || null,
           editReason: editReason || undefined,
-          invoiceDate: invoiceDate ? `${invoiceDate}T12:00:00.000Z` : undefined
+          invoiceDate: invoiceDate ? `${invoiceDate}T12:00:00.000Z` : undefined,
+          branchId: branchIdNumConfirm || undefined,
+          routeId: routeIdNumConfirm || undefined
         }
         setPendingSaveData(saleData)
         setShowEditConfirmModal(true)
@@ -1254,6 +1297,9 @@ const PosPage = () => {
           roundOff: saleData.roundOff ?? 0,
           payments: saleData.payments || [],
           notes: saleData.notes || null,
+          isZeroInvoice: !!saleData.isZeroInvoice,
+          ...(saleData.branchId != null && { branchId: saleData.branchId }),
+          ...(saleData.routeId != null && { routeId: saleData.routeId }),
           ...(saleData.editReason && { editReason: saleData.editReason }),
           ...(editingSale?.rowVersion && { rowVersion: editingSale.rowVersion }),
           ...(saleData.invoiceDate && { invoiceDate: saleData.invoiceDate })
@@ -1403,6 +1449,11 @@ const PosPage = () => {
             errorMsg = 'Unauthorized. Please log in again.'
           } else if (error.response.status === 403) {
             errorMsg = 'You do not have permission to update invoices.'
+          }
+          if (error.response.status === 409 && editingSaleId) {
+            toast.error(`Conflict: ${errorMsg}`, { duration: 8000 })
+            loadSaleForEdit(editingSaleId).catch(() => {})
+            return
           }
         } else if (error?.message) {
           // Network or other error
@@ -2995,30 +3046,47 @@ const PosPage = () => {
                     setLoading(true)
                     try {
                       const totals = calculateTotals()
+                      const routeIdNum = selectedRouteId ? parseInt(selectedRouteId, 10) : null
+                      const selectedRoute = routeIdNum && routes?.length ? routes.find(r => Number(r.id) === routeIdNum) : null
+                      const branchIdNum = selectedRoute?.branchId != null ? Number(selectedRoute.branchId) : (selectedBranchId ? parseInt(selectedBranchId, 10) : null)
                       const saleData = {
                         customerId: selectedCustomer?.id || null,
                         items: cart.filter(item => item.productId && item.qty > 0 && (isZeroInvoice || item.unitPrice > 0)).map(item => ({
                           productId: item.productId,
-                          unitType: item.unitType,
+                          unitType: item.unitType || 'CRTN',
                           qty: Number(item.qty),
-                          unitPrice: isZeroInvoice ? 0 : Number(item.unitPrice)
+                          unitPrice: isZeroInvoice ? 0 : Number(item.unitPrice),
+                          discount: Number(item.discount) || 0
                         })),
                         discount: isZeroInvoice ? 0 : (discount || 0),
+                        roundOff: isZeroInvoice ? 0 : (roundOff ?? 0),
                         isZeroInvoice: !!isZeroInvoice,
-                        payments: (paymentMethod !== 'Pending' && (calculateTotals().grandTotal || 0) > 0)
+                        payments: (paymentMethod !== 'Pending' && (totals.grandTotal || 0) > 0)
                           ? [{
                               method: paymentMethod,
                               amount: (paymentAmount && !isNaN(parseFloat(paymentAmount)) && parseFloat(paymentAmount) > 0)
                                 ? parseFloat(paymentAmount)
-                                : (calculateTotals().grandTotal || 0)
+                                : totals.grandTotal
                             }]
                           : [],
                         notes: notes || null,
-                        editReason: editReason, // Actually use the editReason from state/modal
-                        ...(editingSale?.rowVersion && { rowVersion: editingSale.rowVersion }),
                         invoiceDate: invoiceDate ? `${invoiceDate}T12:00:00.000Z` : undefined
                       }
-                      const response = await salesAPI.updateSale(editingSaleId, saleData)
+                      const updateData = {
+                        customerId: saleData.customerId,
+                        items: saleData.items,
+                        discount: saleData.discount,
+                        roundOff: saleData.roundOff ?? 0,
+                        payments: saleData.payments || [],
+                        notes: saleData.notes || null,
+                        isZeroInvoice: !!saleData.isZeroInvoice,
+                        ...(branchIdNum != null && { branchId: branchIdNum }),
+                        ...(routeIdNum != null && { routeId: routeIdNum }),
+                        editReason: editReason.trim(),
+                        ...(editingSale?.rowVersion && { rowVersion: editingSale.rowVersion }),
+                        ...(saleData.invoiceDate && { invoiceDate: saleData.invoiceDate })
+                      }
+                      const response = await salesAPI.updateSale(editingSaleId, updateData)
                       if (response.success) {
                         const invoiceNo = response.data?.invoiceNo
                         const saleId = response.data?.id
@@ -3134,6 +3202,7 @@ const PosPage = () => {
                     setLoading(true)
                     try {
                       const saleData = pendingSaveData
+                      // Must match main handleSave updateData: omitting isZeroInvoice/roundOff/branch/route broke updates (wrong totals / validation).
                       const updateData = {
                         customerId: saleData.customerId,
                         items: saleData.items,
@@ -3141,6 +3210,9 @@ const PosPage = () => {
                         roundOff: saleData.roundOff ?? 0,
                         payments: saleData.payments || [],
                         notes: saleData.notes || null,
+                        isZeroInvoice: !!saleData.isZeroInvoice,
+                        ...(saleData.branchId != null && { branchId: saleData.branchId }),
+                        ...(saleData.routeId != null && { routeId: saleData.routeId }),
                         ...(saleData.editReason && { editReason: saleData.editReason }),
                         ...(editingSale?.rowVersion && { rowVersion: editingSale.rowVersion }),
                         ...(saleData.invoiceDate && { invoiceDate: saleData.invoiceDate })
@@ -3182,7 +3254,12 @@ const PosPage = () => {
                         error?.response?.data?.errors?.[0] ||
                         error?.message ||
                         'Failed to update invoice. Please try again.'
-                      if (!error?._handledByInterceptor) toast.error(errorMsg)
+                      if (error?.response?.status === 409 && editingSaleId) {
+                        toast.error(`Conflict: ${errorMsg}`, { duration: 8000 })
+                        loadSaleForEdit(editingSaleId).catch(() => {})
+                      } else if (!error?._handledByInterceptor) {
+                        toast.error(errorMsg)
+                      }
                     } finally {
                       setLoading(false)
                     }

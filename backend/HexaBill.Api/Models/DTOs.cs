@@ -297,6 +297,8 @@ namespace HexaBill.Api.Models
     public class UpdateSaleRequest
     {
         public int? CustomerId { get; set; }
+        public int? BranchId { get; set; }
+        public int? RouteId { get; set; }
         [Required]
         [MinLength(1, ErrorMessage = "At least one item is required")]
         public List<SaleItemRequest> Items { get; set; } = new();
@@ -386,6 +388,17 @@ namespace HexaBill.Api.Models
         public string? CreditLimitWarning { get; set; } // Warning message if credit limit exceeded
         public string? EditReason { get; set; }
         public bool IsZeroInvoice { get; set; }
+        /// <summary>First cleared payment mode for list/detail (e.g. CASH). Not the same as PaymentStatus.</summary>
+        public string? PrimaryPaymentMode { get; set; }
+        /// <summary>Payment lines for POS edit (non-VOID).</summary>
+        public List<SalePaymentLineDto>? Payments { get; set; }
+    }
+
+    public class SalePaymentLineDto
+    {
+        public string Method { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public string? Status { get; set; }
     }
 
     public class SaleItemDto
