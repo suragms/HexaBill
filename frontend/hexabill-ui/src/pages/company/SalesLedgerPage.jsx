@@ -24,6 +24,24 @@ const SHOW_FILTERS_KEY = 'hexabill_sales_ledger_show_filters'
 const SHOW_KPI_KEY = 'hexabill_sales_ledger_show_kpi'
 const SORT_ORDER_KEY = 'hexabill_sales_ledger_sort_order'
 
+/** Max sale/payment/return id on a row (one type is usually set per row). */
+function rowActivityId(e) {
+  return Math.max(
+    Number(e.saleId) || 0,
+    Number(e.paymentId) || 0,
+    Number(e.returnId) || 0
+  )
+}
+
+function maxActivityIdInGroup(rows) {
+  return rows.reduce((m, e) => Math.max(m, rowActivityId(e)), 0)
+}
+
+function minActivityIdInGroup(rows) {
+  const ids = rows.map(rowActivityId).filter((id) => id > 0)
+  return ids.length ? Math.min(...ids) : 0
+}
+
 /** Group by customer; order blocks by latest/earliest activity; sort lines within block. Keeps subtotal rows valid. */
 function sortLedgerForDisplay(entries, order) {
   if (!entries || entries.length === 0) return []
@@ -57,17 +75,25 @@ function sortLedgerForDisplay(entries, order) {
 
   const customerNames = [...byCustomer.keys()]
   customerNames.sort((a, b) => {
-    const datesA = byCustomer.get(a).map(e => new Date(e.date).getTime())
-    const datesB = byCustomer.get(b).map(e => new Date(e.date).getTime())
+    const rowsA = byCustomer.get(a)
+    const rowsB = byCustomer.get(b)
+    const datesA = rowsA.map(e => new Date(e.date).getTime())
+    const datesB = rowsB.map(e => new Date(e.date).getTime())
     const maxA = Math.max(...datesA)
     const maxB = Math.max(...datesB)
     const minA = Math.min(...datesA)
     const minB = Math.min(...datesB)
     if (order === 'newest') {
       if (maxB !== maxA) return maxB - maxA
+      const idA = maxActivityIdInGroup(rowsA)
+      const idB = maxActivityIdInGroup(rowsB)
+      if (idB !== idA) return idB - idA
       return a.localeCompare(b)
     }
     if (minA !== minB) return minA - minB
+    const minIdA = minActivityIdInGroup(rowsA)
+    const minIdB = minActivityIdInGroup(rowsB)
+    if (minIdA !== minIdB) return minIdA - minIdB
     return a.localeCompare(b)
   })
 
@@ -76,6 +102,25 @@ function sortLedgerForDisplay(entries, order) {
     flat.push(...byCustomer.get(name))
   }
   return flat
+}
+
+/** Global invoice order when Type = Sale only: one timeline for all customers (newest at top). */
+function sortFlatSalesLedger(entries, order) {
+  if (!entries || entries.length === 0) return []
+  const copy = [...entries]
+  const mult = order === 'newest' ? -1 : 1
+  copy.sort((a, b) => {
+    const da = new Date(a.date).getTime()
+    const db = new Date(b.date).getTime()
+    if (da !== db) return mult * (da - db)
+    const ida = rowActivityId(a)
+    const idb = rowActivityId(b)
+    if (ida !== idb) return mult * (ida - idb)
+    const inv = String(a.invoiceNo || '').localeCompare(String(b.invoiceNo || ''), undefined, { numeric: true })
+    if (inv !== 0) return mult * inv
+    return mult * String(a.customerName || '').localeCompare(String(b.customerName || ''))
+  })
+  return copy
 }
 
 const SalesLedgerPage = () => {
@@ -368,11 +413,15 @@ const SalesLedgerPage = () => {
   
   const hasActiveFilters = Object.values(filters).some(v => v !== '')
 
-  // Display order (grouped by customer); KPI totals still use filteredLedger
-  const displayLedgerSorted = React.useMemo(
-    () => sortLedgerForDisplay(filteredLedger, sortOrder),
-    [filteredLedger, sortOrder]
-  )
+  // Sale-only: flat global timeline (newest invoices at top of whole list). Otherwise: grouped by customer + subtotals.
+  const displayLedgerSorted = React.useMemo(() => {
+    if (filters.type === 'Sale' && filteredLedger.length > 0) {
+      return sortFlatSalesLedger(filteredLedger, sortOrder)
+    }
+    return sortLedgerForDisplay(filteredLedger, sortOrder)
+  }, [filteredLedger, sortOrder, filters.type])
+
+  const showGroupedSubtotals = filters.type !== 'Sale'
 
   const setSortOrderPersist = (next) => {
     setSortOrder(next)
@@ -736,9 +785,14 @@ const SalesLedgerPage = () => {
         </div>
       </div>
 
-      {sortOrder === 'newest' && (
+      {filters.type === 'Sale' && (
+        <div className="flex-shrink-0 px-2 md:px-4 py-1.5 text-xs text-gray-600 bg-emerald-50/90 border-b border-emerald-100">
+          <span className="font-medium text-emerald-900">Sales only:</span> one invoice list for all customers, sorted by date and id ({sortOrder === 'newest' ? 'newest at top' : 'oldest at top'}). Per-customer subtotals are hidden; use footer totals or set Type to All for grouped subtotals.
+        </div>
+      )}
+      {sortOrder === 'newest' && filters.type !== 'Sale' && (
         <div className="flex-shrink-0 px-2 md:px-4 py-1.5 text-xs text-gray-600 bg-amber-50/90 border-b border-amber-100">
-          Newest-first within each customer (latest activity at top). Balance column is per transaction, not a running total down the list.
+          Newest-first within each customer (latest activity at top). Customer blocks are ordered by latest date, then by highest transaction id when dates tie. Balance column is per transaction, not a running total down the list.
         </div>
       )}
 
@@ -1046,7 +1100,7 @@ const SalesLedgerPage = () => {
                       const isNewCustomer = prevCustomer !== null && prevCustomer !== customerName
                       
                       // If we're starting a new customer, add subtotal for previous customer
-                      if (isNewCustomer && currentCustomerEntries.length > 0 && (customerGroups.length > 1 || isCustomerFiltered)) {
+                      if (isNewCustomer && currentCustomerEntries.length > 0 && showGroupedSubtotals && (customerGroups.length > 1 || isCustomerFiltered)) {
                         const prevCustomerGroup = customerGroups.find(g => g.customerName === prevCustomer)
                         if (prevCustomerGroup) {
                           // Use full customer totals from customerGroups, not just displayed entries
@@ -1123,7 +1177,7 @@ const SalesLedgerPage = () => {
                       const customerBalance = entry.type === 'Sale' ? (entry.realPending ?? 0) : (entry.customerBalance ?? 0)
 
                       rows.push(
-                        <tr key={idx} className={rowBgColor}>
+                        <tr key={entry.saleId ? `sale-${entry.saleId}` : entry.paymentId ? `pay-${entry.paymentId}` : entry.returnId ? `ret-${entry.returnId}` : `row-${idx}`} className={rowBgColor}>
                         <td className="px-2 lg:px-3 py-1.5 lg:py-2 whitespace-nowrap text-xs lg:text-sm text-gray-900 border-r border-gray-200">
                           {dateStr}
                         </td>
@@ -1233,7 +1287,7 @@ const SalesLedgerPage = () => {
                     })
 
                     // Add subtotal for last customer if multiple customers or customer filtered
-                    if (currentCustomerEntries.length > 0 && (customerGroups.length > 1 || isCustomerFiltered)) {
+                    if (currentCustomerEntries.length > 0 && showGroupedSubtotals && (customerGroups.length > 1 || isCustomerFiltered)) {
                       const lastCustomerGroup = customerGroups.find(g => g.customerName === prevCustomer)
                       if (lastCustomerGroup) {
                         // Use full customer totals from customerGroups, not just displayed entries
@@ -1360,7 +1414,7 @@ const SalesLedgerPage = () => {
 
                 return (
                   <React.Fragment key={idx}>
-                    {isNewCustomer && idx > 0 && (customerGroups.length > 1 || isCustomerFiltered) && (() => {
+                    {isNewCustomer && idx > 0 && showGroupedSubtotals && (customerGroups.length > 1 || isCustomerFiltered) && (() => {
                       const prevCustomerName = displayedLedger[idx - 1].customerName || 'Cash Customer'
                       const prevCustomerGroup = customerGroups.find(g => g.customerName === prevCustomerName)
                       return prevCustomerGroup ? (
@@ -1498,7 +1552,7 @@ const SalesLedgerPage = () => {
                       </div>
                     )}
                     </div>
-                    {isLastOfCustomer && (customerGroups.length > 1 || isCustomerFiltered) && (() => {
+                    {isLastOfCustomer && showGroupedSubtotals && (customerGroups.length > 1 || isCustomerFiltered) && (() => {
                       const customerGroup = customerGroups.find(g => g.customerName === customerName)
                       return customerGroup ? (
                         <div className="bg-indigo-50 border-2 border-indigo-300 rounded-lg p-3 mt-2">
