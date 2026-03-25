@@ -376,6 +376,7 @@ const SalesLedgerPage = () => {
           const statusUpper = status.toUpperCase()
           if (statusUpper === 'PAID' || statusUpper === 'CLEARED') return 'Paid'
           if (statusUpper === 'PARTIAL') return 'Partial'
+          if (entry.type === 'Payment' && statusUpper === 'PENDING') return 'Pending'
           if (statusUpper === 'UNPAID' || statusUpper === 'PENDING' || statusUpper === 'DUE') return 'Unpaid'
           return status
         }
@@ -1202,6 +1203,7 @@ const SalesLedgerPage = () => {
                         if (entry.type === 'Return') return 'Returned'
                         if (!status || status === '-') return 'Unpaid'
                         const statusUpper = (status || '').toUpperCase()
+                        if (entry.type === 'Payment' && statusUpper === 'PENDING') return 'Pending'
                         if (statusUpper === 'PAID' || statusUpper === 'CLEARED') return 'Paid'
                         if (statusUpper === 'PARTIAL') return 'Partial'
                         if (statusUpper === 'UNPAID' || statusUpper === 'PENDING' || statusUpper === 'DUE') return 'Unpaid'
@@ -1215,6 +1217,8 @@ const SalesLedgerPage = () => {
                           ? 'bg-amber-100 text-amber-800 border-amber-300'
                           : displayStatus === 'Paid'
                             ? 'bg-green-100 text-green-800 border-green-300'
+                            : displayStatus === 'Pending'
+                              ? 'bg-orange-100 text-orange-800 border-orange-300'
                             : displayStatus === 'Partial'
                               ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
                               : displayStatus === 'Unpaid'
@@ -1443,8 +1447,10 @@ const SalesLedgerPage = () => {
                   year: 'numeric'
                 })
                 const normalizeStatusForDisplay = (status) => {
+                  if (entry.type === 'Return') return 'Returned'
                   if (!status || status === '-') return 'Unpaid'
                   const statusUpper = (status || '').toUpperCase()
+                  if (entry.type === 'Payment' && statusUpper === 'PENDING') return 'Pending'
                   if (statusUpper === 'PAID' || statusUpper === 'CLEARED') return 'Paid'
                   if (statusUpper === 'PARTIAL') return 'Partial'
                   if (statusUpper === 'UNPAID' || statusUpper === 'PENDING' || statusUpper === 'DUE') return 'Unpaid'
@@ -1452,13 +1458,17 @@ const SalesLedgerPage = () => {
                 }
                 const displayStatus = normalizeStatusForDisplay(entry.status)
                 const statusColor =
-                  displayStatus === 'Paid'
-                    ? 'bg-green-100 text-green-800'
-                    : displayStatus === 'Partial'
-                      ? 'bg-yellow-100 text-yellow-800'
-                      : displayStatus === 'Unpaid'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-gray-100 text-gray-800'
+                  displayStatus === 'Returned'
+                    ? 'bg-amber-100 text-amber-800'
+                    : displayStatus === 'Paid'
+                      ? 'bg-green-100 text-green-800'
+                      : displayStatus === 'Pending'
+                        ? 'bg-orange-100 text-orange-800'
+                      : displayStatus === 'Partial'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : displayStatus === 'Unpaid'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-gray-100 text-gray-800'
 
                 return (
                   <React.Fragment key={ledgerRowKey(entry, idx)}>

@@ -36,6 +36,9 @@ import PrintOptionsModal from '../../components/PrintOptionsModal'
 import { getApiBaseUrl } from '../../services/apiConfig'
 const API_BASE_URL = getApiBaseUrl()
 
+/** Match backend SalePaymentHelpers settled tolerance (AED). */
+const PAYMENT_SETTLED_EPS = 0.05
+
 /** Map API PaymentMode (e.g. CASH) to POS payment dropdown values (Cash, Debit, …). */
 function normalizeApiPaymentMethodToUi(method) {
   if (!method) return 'Cash'
@@ -321,19 +324,43 @@ const PosPage = () => {
         }
 
         // Payment method / amount (API returns PaymentMode like CASH; map to UI labels)
+        const gtLoad = Number(sale.grandTotal) || 0
+        const paidLoad = Number(sale.paidAmount) || 0
+        const outstandingLoad = Math.max(0, gtLoad - paidLoad)
+        const stLoad = (sale.paymentStatus || '').toLowerCase()
+        const settledLoad =
+          stLoad === 'paid' || gtLoad <= 0 || outstandingLoad <= PAYMENT_SETTLED_EPS
+
         if (sale.payments && sale.payments.length > 0) {
-          const payment = sale.payments[0]
+          const clearedFirst = sale.payments.find(
+            (p) => String(p.status || '').toUpperCase() === 'CLEARED'
+          )
+          const payment = clearedFirst || sale.payments[0]
           setPaymentMethod(normalizeApiPaymentMethodToUi(payment.method))
-          setPaymentAmount(payment.amount != null ? String(payment.amount) : '')
-        } else {
-          const st = (sale.paymentStatus || '').toLowerCase()
-          if (sale.customerId && (st === 'pending' || st === 'partial')) {
-            setPaymentMethod('Pending')
-            const out = (Number(sale.grandTotal) || 0) - (Number(sale.paidAmount) || 0)
-            setPaymentAmount(out > 0 ? String(out) : '')
+          if (!settledLoad && outstandingLoad > PAYMENT_SETTLED_EPS) {
+            setPaymentAmount(String(outstandingLoad))
           } else {
-            setPaymentMethod('Cash')
             setPaymentAmount('')
+          }
+        } else {
+          // No payment rows in payload: never treat "partial" as Credit Invoice — only true unpaid (pending) is credit.
+          if (settledLoad) {
+            setPaymentMethod(
+              sale.primaryPaymentMode
+                ? normalizeApiPaymentMethodToUi(sale.primaryPaymentMode)
+                : 'Cash'
+            )
+            setPaymentAmount('')
+          } else if (sale.customerId && stLoad === 'pending') {
+            setPaymentMethod('Pending')
+            setPaymentAmount(outstandingLoad > 0 ? String(outstandingLoad) : '')
+          } else {
+            setPaymentMethod(
+              sale.primaryPaymentMode
+                ? normalizeApiPaymentMethodToUi(sale.primaryPaymentMode)
+                : 'Cash'
+            )
+            setPaymentAmount(outstandingLoad > 0 ? String(outstandingLoad) : '')
           }
         }
 

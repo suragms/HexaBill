@@ -2377,9 +2377,9 @@ namespace HexaBill.Api.Modules.Reports
 
             var saleIds = sales.Select(s => s.Id).ToHashSet();
 
-            // Get payments within date range (exclude refund payments - they are Type "Refund" and reduce balance differently)
+            // Get payments within date range (exclude refund + void rows)
             var paymentsQuery = _context.Payments
-                .Where(p => p.TenantId == tenantId && p.SaleReturnId == null && p.PaymentDate >= from && p.PaymentDate <= to);
+                .Where(p => p.TenantId == tenantId && p.SaleReturnId == null && p.Status != PaymentStatus.VOID && p.PaymentDate >= from && p.PaymentDate <= to);
             if (branchId.HasValue || routeId.HasValue || staffId.HasValue)
                 paymentsQuery = paymentsQuery.Where(p => !p.SaleId.HasValue || saleIds.Contains(p.SaleId.Value));
             var payments = await paymentsQuery
@@ -2405,12 +2405,44 @@ namespace HexaBill.Api.Modules.Reports
                 returns = projected.Select(x => (x.Id, x.ReturnDate, (string?)x.ReturnNo, x.CustomerId, x.GrandTotal, x.VatTotal)).ToList();
             }
 
-            // Get payment totals per sale for status calculation (exclude refunds)
+            // Cleared payment amounts only (same rule as POS / SalePaymentHelpers — pending cheques are not "paid" yet)
             var salePayments = await _context.Payments
-                .Where(p => p.TenantId == tenantId && p.SaleId.HasValue && p.SaleReturnId == null)
+                .Where(p => p.TenantId == tenantId && p.SaleId.HasValue && p.SaleReturnId == null && p.Status == PaymentStatus.CLEARED)
                 .GroupBy(p => p.SaleId!.Value)
                 .Select(g => new { SaleId = g.Key, TotalPaid = g.Sum(p => p.Amount) })
                 .ToDictionaryAsync(x => x.SaleId, x => x.TotalPaid);
+
+            // Invoice no + grand total for any sale linked from payments, even if invoice DATE is outside the report range (fixes Payment rows stuck as Partial)
+            var saleInfoById = sales.ToDictionary(s => s.Id, s => (s.InvoiceNo, s.GrandTotal));
+            var paymentLinkedSaleIds = payments.Where(p => p.SaleId.HasValue).Select(p => p.SaleId!.Value).Distinct().ToList();
+            var missingSaleInfoIds = paymentLinkedSaleIds.Where(id => !saleInfoById.ContainsKey(id)).ToList();
+            if (missingSaleInfoIds.Count > 0)
+            {
+                var extraSales = await _context.Sales.AsNoTracking()
+                    .Where(s => (s.TenantId == tenantId || (s.TenantId == null && s.OwnerId == tenantId)) && !s.IsDeleted && missingSaleInfoIds.Contains(s.Id))
+                    .Select(s => new { s.Id, s.InvoiceNo, s.GrandTotal })
+                    .ToListAsync();
+                foreach (var e in extraSales)
+                    saleInfoById[e.Id] = (e.InvoiceNo ?? "-", e.GrandTotal);
+            }
+
+            var reportSaleIds = sales.Select(s => s.Id).ToList();
+            var firstClearedModeBySaleId = new Dictionary<int, string>();
+            if (reportSaleIds.Count > 0)
+            {
+                var clearedRows = await _context.Payments.AsNoTracking()
+                    .Where(p => p.TenantId == tenantId && p.SaleId.HasValue && reportSaleIds.Contains(p.SaleId.Value) && p.SaleReturnId == null && p.Status == PaymentStatus.CLEARED)
+                    .OrderBy(p => p.PaymentDate).ThenBy(p => p.Id)
+                    .Select(p => new { p.SaleId, p.Mode })
+                    .ToListAsync();
+                foreach (var row in clearedRows)
+                {
+                    if (!row.SaleId.HasValue) continue;
+                    var sid = row.SaleId.Value;
+                    if (!firstClearedModeBySaleId.ContainsKey(sid))
+                        firstClearedModeBySaleId[sid] = row.Mode.ToString().ToUpper();
+                }
+            }
 
             // Load all customers in one query for efficiency (include return customers)
             var customerIds = sales.Select(s => s.CustomerId).Concat(payments.Select(p => p.CustomerId)).Concat(returns.Select(r => r.CustomerId))
@@ -2433,10 +2465,11 @@ namespace HexaBill.Api.Modules.Reports
             {
                 var paidAmount = salePayments.GetValueOrDefault(sale.Id, 0m);
                 var balance = sale.GrandTotal - paidAmount;
-                
-                // Determine status
+                const decimal settledEps = 0.05m; // minor VAT/rounding drift between line items and payment total
+
+                // Invoice row: settlement from cleared payments only (Sale row — not individual payment receipts)
                 string status = "Unpaid";
-                if (balance <= 0.01m)
+                if (balance <= settledEps)
                 {
                     status = "Paid";
                 }
@@ -2460,16 +2493,10 @@ namespace HexaBill.Api.Modules.Reports
                 string paymentModeDisplay = "NOT PAID";
                 if (status == "Paid" || status == "Partial")
                 {
-                    // Get payment mode from first payment for this sale
-                    var firstPayment = payments.FirstOrDefault(p => p.SaleId == sale.Id);
-                    if (firstPayment != null)
-                    {
-                        paymentModeDisplay = firstPayment.Mode.ToString().ToUpper();
-                    }
+                    if (firstClearedModeBySaleId.TryGetValue(sale.Id, out var pm))
+                        paymentModeDisplay = pm;
                     else if (status == "Paid")
-                    {
                         paymentModeDisplay = "PAID";
-                    }
                 }
 
                 // Calculate real pending (GrandTotal - PaidAmount)
@@ -2499,22 +2526,21 @@ namespace HexaBill.Api.Modules.Reports
             }
 
             // Add payment entries (Credit)
+            // Payment row = this receipt only. Invoice Paid/Partial/Unpaid is on the Sale row (avoid "Partial" on a fully received cash line).
             foreach (var payment in payments)
             {
-                var found = payment.SaleId.HasValue ? sales.FirstOrDefault(s => s.Id == payment.SaleId.Value) : default;
-                bool hasRelatedSale = found.Id != 0 && payment.SaleId.HasValue && found.Id == payment.SaleId.Value;
+                string invoiceNo = payment.Reference ?? "-";
+                if (payment.SaleId.HasValue && saleInfoById.TryGetValue(payment.SaleId.Value, out var linkedSale))
+                    invoiceNo = string.IsNullOrWhiteSpace(linkedSale.InvoiceNo) ? (payment.Reference ?? "-") : linkedSale.InvoiceNo;
 
-                var invoiceNo = hasRelatedSale ? found.InvoiceNo : (payment.Reference ?? "-");
-                var paidAmount = salePayments.GetValueOrDefault(hasRelatedSale ? found.Id : 0, 0m);
-                var saleBalance = hasRelatedSale ? found.GrandTotal - paidAmount : 0m;
-                
-                string status = "Partial";
-                if (hasRelatedSale)
+                var status = payment.Status switch
                 {
-                    if (saleBalance <= 0.01m) status = "Paid";
-                    else if (paidAmount > 0) status = "Partial";
-                    else status = "Unpaid";
-                }
+                    PaymentStatus.PENDING => "Pending",
+                    PaymentStatus.CLEARED => "Paid",
+                    PaymentStatus.RETURNED => "Returned",
+                    PaymentStatus.VOID => "Void",
+                    _ => "Paid"
+                };
 
                 // Update customer balance
                 var paymentCustomerKey = payment.CustomerId ?? 0;

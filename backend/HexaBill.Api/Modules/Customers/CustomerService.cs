@@ -1073,8 +1073,9 @@ namespace HexaBill.Api.Modules.Customers
             var invoiceLookup = salesData.ToDictionary(s => s.Id, s => s.InvoiceNo);
 
             // Get payment totals for each sale to calculate status (exclude refunds)
+            // Cleared amounts only — matches invoice paid state elsewhere (pending cheques do not count)
             var salePayments = await _context.Payments
-                .Where(p => p.CustomerId.HasValue && p.CustomerId.Value == customerId && p.TenantId == tenantId && p.SaleId.HasValue && p.SaleReturnId == null)
+                .Where(p => p.CustomerId.HasValue && p.CustomerId.Value == customerId && p.TenantId == tenantId && p.SaleId.HasValue && p.SaleReturnId == null && p.Status == PaymentStatus.CLEARED)
                 .GroupBy(p => p.SaleId!.Value)
                 .Select(g => new { SaleId = g.Key, TotalPaid = g.Sum(p => p.Amount) })
                 .ToDictionaryAsync(x => x.SaleId, x => x.TotalPaid);
@@ -1306,7 +1307,7 @@ namespace HexaBill.Api.Modules.Customers
             var invoiceLookup = sales.ToDictionary(s => s.Id, s => s.InvoiceNo);
 
             var salePayments = await _context.Payments
-                .Where(p => p.CustomerId == null && p.TenantId == tenantId && p.SaleId.HasValue && p.SaleReturnId == null)
+                .Where(p => p.CustomerId == null && p.TenantId == tenantId && p.SaleId.HasValue && p.SaleReturnId == null && p.Status == PaymentStatus.CLEARED)
                 .GroupBy(p => p.SaleId!.Value)
                 .Select(g => new { SaleId = g.Key, TotalPaid = g.Sum(p => p.Amount) })
                 .ToDictionaryAsync(x => x.SaleId, x => x.TotalPaid);

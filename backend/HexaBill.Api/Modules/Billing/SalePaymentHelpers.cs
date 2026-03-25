@@ -32,6 +32,12 @@ internal static class SalePaymentHelpers
         if (grandTotal <= 0)
             return (0, SalePaymentStatus.Paid, lastClearedPaymentDate);
 
+        // Match ledger / VAT rounding: treat as fully settled when within small drift (avoids Partial/Pending on full cash)
+        const decimal settledEps = 0.05m;
+        var shortfall = grandTotal - clearedSumTotal;
+        if (shortfall <= settledEps)
+            return (grandTotal, SalePaymentStatus.Paid, lastClearedPaymentDate);
+
         var paidAmount = Math.Min(clearedSumTotal, grandTotal);
 
         if (clearedSumTotal >= grandTotal)
