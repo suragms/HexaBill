@@ -87,7 +87,7 @@ const SettingsPage = () => {
     cloudBackupRefreshToken: '',
     cloudBackupFolderId: '',
     lowStockGlobalThreshold: '', // #55: optional global fallback when product ReorderLevel is 0
-    allowNegativeStock: false,
+    allowNegativeStock: true,
     returnPolicyHeader: '',
     returnPolicyBody: '',
     returnPolicyFooter: '',

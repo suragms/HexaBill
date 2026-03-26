@@ -138,6 +138,12 @@ namespace HexaBill.Api.Modules.SuperAdmin
 
                         if (settings.Any())
                         {
+                            // Merge in any missing default keys so newly-added settings are available
+                            foreach (var kvp in GetDefaultSettings())
+                            {
+                                if (!settings.ContainsKey(kvp.Key))
+                                    settings[kvp.Key] = kvp.Value;
+                            }
                             EnsureCompanyLogoFromLogoUrl(settings);
                             return settings;
                         }
@@ -170,6 +176,11 @@ namespace HexaBill.Api.Modules.SuperAdmin
 
                 if (settings.Any())
                 {
+                    foreach (var kvp in GetDefaultSettings())
+                    {
+                        if (!settings.ContainsKey(kvp.Key))
+                            settings[kvp.Key] = kvp.Value;
+                    }
                     EnsureCompanyLogoFromLogoUrl(settings);
                     return settings;
                 }
@@ -382,7 +393,7 @@ namespace HexaBill.Api.Modules.SuperAdmin
                 { "VAT_LEGAL_TEXT", "VAT registered under Federal Decree-Law No. 8 of 2017, UAE" },
                 { "LOGO_PATH", "/uploads/logo.png" },
                 { "LOW_STOCK_GLOBAL_THRESHOLD", "" }, // Optional: alert when stock <= this for products with ReorderLevel 0 (#55)
-                { "ALLOW_NEGATIVE_STOCK", "false" }
+                { "ALLOW_NEGATIVE_STOCK", "true" }
             };
         }
     }

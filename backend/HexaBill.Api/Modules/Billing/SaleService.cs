@@ -93,6 +93,8 @@ namespace HexaBill.Api.Modules.Billing
         private async Task<bool> IsNegativeStockAllowedAsync(int tenantId)
         {
             var val = await _settingsService.GetSettingValueAsync(tenantId, "ALLOW_NEGATIVE_STOCK");
+            // When the key is missing from the tenant's saved settings, default to true (allow negative stock)
+            if (val == null) return true;
             return string.Equals(val, "true", StringComparison.OrdinalIgnoreCase);
         }
 
