@@ -349,18 +349,18 @@ namespace HexaBill.Api.Modules.Payments
                 }
                 catch (DbUpdateConcurrencyException ex)
                 {
-                    await transaction.RollbackAsync();
+                    try { await transaction.RollbackAsync(); } catch { }
                     throw new InvalidOperationException("Invoice was modified by another user. Please refresh and try again.", ex);
                 }
                 catch (DbUpdateException ex)
                 {
-                    await transaction.RollbackAsync();
+                    try { await transaction.RollbackAsync(); } catch { }
                     var errorMessage = ex.InnerException?.Message ?? ex.Message;
                     throw new InvalidOperationException($"Database error: {errorMessage}", ex);
                 }
                 catch
                 {
-                    await transaction.RollbackAsync();
+                    try { await transaction.RollbackAsync(); } catch { }
                     throw;
                 }
             });
@@ -497,7 +497,7 @@ namespace HexaBill.Api.Modules.Payments
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { }
                 Console.WriteLine($"❌ Error updating payment status: {ex.Message}");
                 throw;
             }
@@ -637,7 +637,7 @@ namespace HexaBill.Api.Modules.Payments
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { }
                 Console.WriteLine($"❌ Error updating payment: {ex.Message}");
                 throw;
             }
@@ -752,7 +752,7 @@ namespace HexaBill.Api.Modules.Payments
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { }
                 Console.WriteLine($"❌ Error deleting payment: {ex.Message}");
                 throw;
             }
@@ -999,7 +999,7 @@ namespace HexaBill.Api.Modules.Payments
                 }
                 catch (DbUpdateConcurrencyException ex)
                 {
-                    await transaction.RollbackAsync();
+                    try { await transaction.RollbackAsync(); } catch { }
                     throw new InvalidOperationException("Invoice was modified by another user. Please refresh and try again.", ex);
                 }
 
@@ -1025,7 +1025,7 @@ namespace HexaBill.Api.Modules.Payments
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { }
                 _logger.LogError(ex, "Error allocating payment");
                 throw;
             }

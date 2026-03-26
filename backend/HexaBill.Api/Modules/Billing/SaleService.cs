@@ -577,8 +577,7 @@ namespace HexaBill.Api.Modules.Billing
             var strategy = _context.Database.CreateExecutionStrategy();
             return await strategy.ExecuteAsync(async () =>
             {
-            // Use serializable isolation to prevent concurrent invoice number conflicts
-            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 // CRITICAL FIX: Generate invoice number INSIDE transaction to prevent race conditions
@@ -1166,9 +1165,8 @@ namespace HexaBill.Api.Modules.Billing
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { /* transaction may already be aborted */ }
                 
-                // Log detailed error for debugging
                 _logger.LogError(ex, "CreateSaleAsync Error: {Type}, Message: {Message}", ex.GetType().Name, ex.Message);
                 if (ex.InnerException != null)
                 {
@@ -1451,7 +1449,7 @@ namespace HexaBill.Api.Modules.Billing
             }
             catch
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { /* transaction may already be aborted */ }
                 throw;
             }
             });
@@ -1468,8 +1466,7 @@ namespace HexaBill.Api.Modules.Billing
             var strategyUpdate = _context.Database.CreateExecutionStrategy();
             return await strategyUpdate.ExecuteAsync(async () =>
             {
-            // Use serializable isolation level to prevent concurrent edits
-            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 // CRITICAL: Get existing sale with owner verification
@@ -2227,7 +2224,7 @@ namespace HexaBill.Api.Modules.Billing
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { /* transaction may already be aborted */ }
                 
                 _logger.LogError(
                     ex,
@@ -2246,7 +2243,6 @@ namespace HexaBill.Api.Modules.Billing
                         ex.InnerException.Message);
                 }
                 
-                // Re-throw to be caught by controller
                 throw;
             }
             });
@@ -2429,7 +2425,7 @@ namespace HexaBill.Api.Modules.Billing
             }
             catch
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { /* transaction may already be aborted */ }
                 throw;
             }
             });
@@ -2693,7 +2689,7 @@ namespace HexaBill.Api.Modules.Billing
             }
             catch
             {
-                await transaction.RollbackAsync();
+                try { await transaction.RollbackAsync(); } catch { /* transaction may already be aborted */ }
                 throw;
             }
             });

@@ -637,6 +637,36 @@ using (var scope = app.Services.CreateScope())
                 ");
             }
             catch (Exception ex) when (ex.Message?.Contains("already exists", StringComparison.OrdinalIgnoreCase) == true) { /* tables may already exist */ }
+            // RecurringExpenses table (fixes 42P01: relation "RecurringExpenses" does not exist)
+            try
+            {
+                ctx.Database.ExecuteSqlRaw(@"
+                    CREATE TABLE IF NOT EXISTS ""RecurringExpenses"" (
+                        ""Id"" serial PRIMARY KEY,
+                        ""OwnerId"" integer NOT NULL,
+                        ""TenantId"" integer NULL,
+                        ""BranchId"" integer NULL,
+                        ""CategoryId"" integer NOT NULL,
+                        ""Amount"" numeric(18,2) NOT NULL,
+                        ""Note"" character varying(500) NULL,
+                        ""Frequency"" integer NOT NULL DEFAULT 0,
+                        ""DayOfRecurrence"" integer NULL,
+                        ""StartDate"" timestamp with time zone NOT NULL,
+                        ""EndDate"" timestamp with time zone NULL,
+                        ""IsActive"" boolean NOT NULL DEFAULT true,
+                        ""CreatedBy"" integer NOT NULL,
+                        ""CreatedAt"" timestamp with time zone NOT NULL,
+                        ""UpdatedAt"" timestamp with time zone NOT NULL,
+                        CONSTRAINT ""FK_RecurringExpenses_ExpenseCategories_CategoryId"" FOREIGN KEY (""CategoryId"") REFERENCES ""ExpenseCategories""(""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_RecurringExpenses_Branches_BranchId"" FOREIGN KEY (""BranchId"") REFERENCES ""Branches""(""Id""),
+                        CONSTRAINT ""FK_RecurringExpenses_Users_CreatedBy"" FOREIGN KEY (""CreatedBy"") REFERENCES ""Users""(""Id"") ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_RecurringExpenses_TenantId"" ON ""RecurringExpenses"" (""TenantId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_RecurringExpenses_BranchId"" ON ""RecurringExpenses"" (""BranchId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_RecurringExpenses_CategoryId"" ON ""RecurringExpenses"" (""CategoryId"");
+                ");
+            }
+            catch (Exception ex) when (ex.Message?.Contains("already exists", StringComparison.OrdinalIgnoreCase) == true) { /* table may already exist */ }
         }
         catch (Exception ex)
         {
