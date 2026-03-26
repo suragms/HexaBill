@@ -65,6 +65,23 @@ const SupplierDetailPage = () => {
     }
   }, [supplierName, activeTab, fromDate, toDate, showRecordPayment])
 
+  useEffect(() => {
+    const urlAmount = searchParams.get('amount')
+    const urlRef = searchParams.get('ref')
+    if (urlAmount && parseFloat(urlAmount) > 0) {
+      setPaymentForm(prev => ({
+        ...prev,
+        amount: urlAmount,
+        reference: urlRef ? decodeURIComponent(urlRef) : prev.reference
+      }))
+      setPreFillPayment({
+        amount: urlAmount,
+        reference: urlRef ? decodeURIComponent(urlRef) : ''
+      })
+      setShowRecordPayment(true)
+    }
+  }, [])
+
   const loadData = async () => {
     if (!supplierName) return
     try {

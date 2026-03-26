@@ -469,28 +469,22 @@ const ReportsPage = () => {
           console.log('Product Analysis response:', productsResponse)
 
           if (productsResponse?.success && productsResponse?.data) {
-            const products = (productsResponse.data || []).map(p => ({
+            const rawData = Array.isArray(productsResponse.data) ? productsResponse.data : []
+            const products = rawData.map(p => ({
               name: p.productName || p.ProductName || p.sku || p.Sku || 'Unknown Product',
               sales: parseFloat(p.totalAmount || p.TotalAmount || 0),
               margin: parseFloat(p.profitMargin || p.ProfitMargin || 0),
               qty: parseFloat(p.totalQty || p.TotalQty || 0),
               sku: p.sku || p.Sku || 'N/A'
             }))
-
-            console.log('Product Analysis data loaded:', {
-              productCount: products.length,
-              totalSales: products.reduce((sum, p) => sum + p.sales, 0)
-            })
-
             setReportData(prev => ({ ...prev, products }))
           } else {
-            console.error('Product Analysis response not successful:', productsResponse)
-            toast.error(productsResponse?.message || 'Failed to load product sales data')
             setReportData(prev => ({ ...prev, products: [] }))
           }
         } catch (error) {
           console.error('Error loading product sales:', error)
-          if (!error?._handledByInterceptor) toast.error(error?.response?.data?.message || 'Failed to load product sales report')
+          const msg = error?.response?.data?.message || error?.message || 'Failed to load product sales report'
+          if (!error?._handledByInterceptor) toast.error(msg)
           setReportData(prev => ({ ...prev, products: [] }))
         } finally {
           setLoading(false)

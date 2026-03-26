@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Edit, Trash2, Eye, Save, Search, X, Filter, Calendar, TrendingUp, TrendingDown, BarChart3, DollarSign, Download, ExternalLink } from 'lucide-react'
+import { Plus, Edit, Trash2, Eye, Save, Search, X, Filter, Calendar, TrendingUp, TrendingDown, BarChart3, DollarSign, Download, ExternalLink, Users } from 'lucide-react'
 import { purchasesAPI, productsAPI, settingsAPI, suppliersAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
 import toast from 'react-hot-toast'
@@ -58,7 +58,8 @@ const PurchasesPage = () => {
     onConfirm: () => { }
   })
   const navigate = useNavigate()
-  const [expandedPurchaseId, setExpandedPurchaseId] = useState(null) // Phase 10: expandable mobile rows
+  const [expandedPurchaseId, setExpandedPurchaseId] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-GB')
@@ -446,6 +447,7 @@ const PurchasesPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (submitting) return
     if (formData.items.length === 0) {
       toast.error('Please add at least one item')
       return
@@ -464,6 +466,7 @@ const PurchasesPage = () => {
     }
 
     try {
+      setSubmitting(true)
       const purchaseDate = formData.purchaseDate || new Date().toISOString().split('T')[0]
       const purchaseData = {
         supplierName: (formData.supplierName || '').trim(),
@@ -525,6 +528,8 @@ const PurchasesPage = () => {
       const errors = data?.errors
       const errorMsg = (Array.isArray(errors) && errors.length && errors[0]) || data?.message || error?.message || 'Failed to save purchase'
       toast.error(editingPurchase ? `Update failed: ${errorMsg}` : `Create failed: ${errorMsg}`, { duration: 6000 })
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -606,48 +611,77 @@ const PurchasesPage = () => {
 
   // TALLY ERP PURCHASE VOUCHER STYLE
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-50 pb-20 overflow-x-hidden max-w-full">
-      {/* Top Bar - Mobile Responsive - FIXED POSITION */}
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-50 pb-20 overflow-x-hidden w-full">
+      {/* Top Bar */}
       <div className="bg-primary-100 border-b-2 border-primary-200 px-2 sm:px-4 py-2 sticky top-0 z-20 shadow-sm">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
           <div>
             <h1 className="text-base sm:text-lg font-bold text-primary-800">Purchase Voucher</h1>
             <div className="text-xs text-primary-600">Date: {new Date().toLocaleDateString('en-GB')}</div>
           </div>
-          <button
-            onClick={handleNewPurchase}
-            className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded font-medium hover:bg-primary-700 flex items-center justify-center text-xs sm:text-sm w-full sm:w-auto min-h-[44px]"
-          >
-            <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
-            <span className="hidden sm:inline">New Purchase</span>
-            <span className="sm:hidden">New</span>
-          </button>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              onClick={() => navigate('/suppliers')}
+              className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-white text-primary-700 border-2 border-primary-300 rounded font-medium hover:bg-primary-50 flex items-center justify-center text-xs sm:text-sm flex-1 sm:flex-none min-h-[44px]"
+            >
+              <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Add Supplier</span>
+              <span className="sm:hidden">Supplier</span>
+            </button>
+            <button
+              onClick={handleNewPurchase}
+              className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-primary-600 text-white rounded font-medium hover:bg-primary-700 flex items-center justify-center text-xs sm:text-sm flex-1 sm:flex-none min-h-[44px]"
+            >
+              <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+              <span className="hidden sm:inline">New Purchase</span>
+              <span className="sm:hidden">New</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="p-2 sm:p-4 overflow-x-hidden max-w-full">
-        {/* Pending to Pay + Status summary card */}
+      <div className="p-2 sm:p-4 w-full">
+        {/* Pending Summary + Clickable Status Filter Cards */}
         {pendingSummary && (
-          <div className="mb-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-lg border-2 border-amber-300 p-3 sm:p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-amber-900">Total Pending to Pay (Purchases)</h3>
-                <p className="text-2xl sm:text-3xl font-bold text-amber-700 mt-1">
+          <div className="mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+              {/* Total Pending */}
+              <button type="button" onClick={() => setStatusFilter('all')}
+                className={`col-span-2 sm:col-span-3 lg:col-span-1 text-left rounded-lg border-2 p-3 sm:p-4 transition-all ${statusFilter === 'all' ? 'border-amber-500 bg-gradient-to-br from-amber-50 to-orange-50 shadow-md ring-2 ring-amber-200' : 'border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 hover:shadow-md'}`}>
+                <h3 className="text-xs font-bold text-amber-900 uppercase tracking-wide">Total Pending</h3>
+                <p className="text-xl sm:text-2xl font-bold text-amber-700 mt-1">
                   AED {(pendingSummary.totalPendingToPay ?? 0).toFixed(2)}
                 </p>
-                <p className="text-xs text-amber-700 mt-1">Outstanding across all suppliers</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-neutral-100 text-neutral-800">
-                  Unpaid: {pendingSummary.unpaidCount ?? 0}
-                </span>
-                <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-800">
-                  Partial: {pendingSummary.partialCount ?? 0}
-                </span>
-                <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-                  Paid: {pendingSummary.paidCount ?? 0}
-                </span>
-              </div>
+                <p className="text-xs text-amber-600 mt-1">All suppliers</p>
+              </button>
+              {/* Unpaid */}
+              <button type="button" onClick={() => setStatusFilter('unpaid')}
+                className={`text-left rounded-lg border-2 p-3 sm:p-4 transition-all ${statusFilter === 'unpaid' ? 'border-red-500 bg-red-50 shadow-md ring-2 ring-red-200' : 'border-red-200 bg-red-50 hover:shadow-md hover:border-red-400'}`}>
+                <h3 className="text-xs font-bold text-red-800 uppercase tracking-wide">Unpaid</h3>
+                <p className="text-2xl font-bold text-red-700 mt-1">{pendingSummary.unpaidCount ?? 0}</p>
+                <p className="text-xs text-red-600">invoices</p>
+              </button>
+              {/* Partial */}
+              <button type="button" onClick={() => setStatusFilter('partial')}
+                className={`text-left rounded-lg border-2 p-3 sm:p-4 transition-all ${statusFilter === 'partial' ? 'border-amber-500 bg-amber-50 shadow-md ring-2 ring-amber-200' : 'border-amber-200 bg-amber-50 hover:shadow-md hover:border-amber-400'}`}>
+                <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wide">Partial</h3>
+                <p className="text-2xl font-bold text-amber-700 mt-1">{pendingSummary.partialCount ?? 0}</p>
+                <p className="text-xs text-amber-600">invoices</p>
+              </button>
+              {/* Paid */}
+              <button type="button" onClick={() => setStatusFilter('paid')}
+                className={`text-left rounded-lg border-2 p-3 sm:p-4 transition-all ${statusFilter === 'paid' ? 'border-green-500 bg-green-50 shadow-md ring-2 ring-green-200' : 'border-green-200 bg-green-50 hover:shadow-md hover:border-green-400'}`}>
+                <h3 className="text-xs font-bold text-green-800 uppercase tracking-wide">Paid</h3>
+                <p className="text-2xl font-bold text-green-700 mt-1">{pendingSummary.paidCount ?? 0}</p>
+                <p className="text-xs text-green-600">invoices</p>
+              </button>
+              {/* Overdue */}
+              <button type="button" onClick={() => setStatusFilter('overdue')}
+                className={`text-left rounded-lg border-2 p-3 sm:p-4 transition-all ${statusFilter === 'overdue' ? 'border-rose-500 bg-rose-50 shadow-md ring-2 ring-rose-200' : 'border-rose-200 bg-rose-50 hover:shadow-md hover:border-rose-400'}`}>
+                <h3 className="text-xs font-bold text-rose-800 uppercase tracking-wide">Overdue</h3>
+                <p className="text-2xl font-bold text-rose-700 mt-1">{pendingSummary.overdueCount ?? 0}</p>
+                <p className="text-xs text-rose-600">invoices</p>
+              </button>
             </div>
           </div>
         )}
@@ -1521,17 +1555,17 @@ const PurchasesPage = () => {
               {/* (6) Totals - shown in items table foot; (7) Actions - Phase 10.3: sticky on mobile */}
               <div className="flex justify-end space-x-3 mt-4 md:static fixed bottom-0 left-0 right-0 p-4 bg-white border-t-2 border-lime-300 md:border-0 md:p-0 z-10 md:z-auto">
                 <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border-2 border-lime-300 rounded text-sm font-medium hover:bg-lime-50">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded text-sm font-medium hover:bg-primary-700 flex items-center min-h-[44px]">
-                  <Save className="h-4 w-4 mr-2" /> Save Purchase
+                <button type="submit" disabled={submitting} className="px-4 py-2 bg-primary-600 text-white rounded text-sm font-medium hover:bg-primary-700 disabled:opacity-50 flex items-center min-h-[44px]">
+                  <Save className="h-4 w-4 mr-2" /> {submitting ? 'Saving…' : 'Save Purchase'}
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        {/* Purchases List - Tally Style - contained, no horizontal page scroll */}
-        <div className="bg-white rounded-lg border-2 border-lime-300 shadow-sm w-full max-w-full overflow-hidden">
-          <div className="p-4 border-b-2 border-lime-400 bg-lime-100">
+        {/* Purchases List */}
+        <div className="bg-white rounded-lg border-2 border-lime-300 shadow-sm w-full overflow-hidden">
+          <div className="p-3 sm:p-4 border-b-2 border-lime-400 bg-lime-100">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-bold text-primary-800">Purchase List</h3>
               <div className="flex flex-wrap items-center gap-2">
@@ -1552,15 +1586,6 @@ const PurchasesPage = () => {
                 >
                   {bulkFixingItc ? 'Updating…' : 'Mark all with VAT as claimable'}
                 </button>
-                {['all', 'unpaid', 'partial', 'paid', 'overdue'].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setStatusFilter(s)}
-                    className={`px-2 py-1 rounded text-xs font-medium ${statusFilter === s ? 'bg-primary-600 text-white' : 'bg-white border border-lime-400 text-primary-700 hover:bg-lime-100'}`}
-                  >
-                    {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-                  </button>
-                ))}
               </div>
             </div>
           </div>
@@ -1572,7 +1597,7 @@ const PurchasesPage = () => {
             <>
               {/* Desktop Table - scroll contained, no page overflow */}
               <div className="hidden md:block overflow-x-auto max-w-full" style={{ WebkitOverflowScrolling: 'touch' }}>
-                <table className="w-full text-xs min-w-[600px]">
+                <table className="w-full text-xs min-w-[700px]">
                   <thead className="bg-lime-100">
                     <tr>
                       <th className="px-3 py-2 border-r border-lime-300 text-left">Invoice No</th>
@@ -1582,6 +1607,7 @@ const PurchasesPage = () => {
                       <th className="px-3 py-2 border-r border-lime-300 text-right">VAT ({vatPercent}%)</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-center" title="VAT Return: Tax claimable (ITC)">ITC</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-right">Total</th>
+                      <th className="px-3 py-2 border-r border-lime-300 text-right" title="Vendor discount / ledger credits">V.Disc</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-right">Paid</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-right">Balance</th>
                       <th className="px-3 py-2 border-r border-lime-300 text-center">Status</th>
@@ -1592,7 +1618,7 @@ const PurchasesPage = () => {
                   <tbody className="divide-y divide-lime-200">
                     {purchases.length === 0 ? (
                       <tr>
-                        <td colSpan="12" className="px-4 py-8 text-center">
+                        <td colSpan="13" className="px-4 py-8 text-center">
                           <div className="text-primary-500">
                             {filterPeriod === 'today' ? (
                               <>
@@ -1641,6 +1667,9 @@ const PurchasesPage = () => {
                             </span>
                           </td>
                           <td className="px-3 py-2 text-right font-bold text-green-700">AED {purchase.totalAmount.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right text-purple-600">
+                            {(purchase.vendorDiscountAmount ?? 0) > 0 ? `AED ${purchase.vendorDiscountAmount.toFixed(2)}` : <span className="text-primary-400">-</span>}
+                          </td>
                           <td className="px-3 py-2 text-right text-primary-600">AED {(purchase.paidAmount ?? 0).toFixed(2)}</td>
                           <td className="px-3 py-2 text-right font-medium text-amber-700">AED {(purchase.balanceAmount ?? purchase.totalAmount ?? 0).toFixed(2)}</td>
                           <td className="px-3 py-2 text-center">
@@ -1658,9 +1687,9 @@ const PurchasesPage = () => {
                             <div className="flex flex-wrap justify-center gap-1">
                               {(['Unpaid', 'Partial'].includes(purchase.paymentStatus || '') && (
                                 <button
-                                  onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1`)}
+                                  onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1&amount=${purchase.balanceAmount ?? purchase.totalAmount}&ref=${encodeURIComponent(purchase.invoiceNo || '')}`)}
                                   className="bg-green-50 text-green-600 hover:bg-green-600 hover:text-white border border-green-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
-                                  title="Open Supplier Ledger to pay"
+                                  title={`Pay AED ${(purchase.balanceAmount ?? purchase.totalAmount ?? 0).toFixed(2)}`}
                                 >
                                   <DollarSign className="h-3.5 w-3.5" /> Pay
                                 </button>
@@ -1769,6 +1798,9 @@ const PurchasesPage = () => {
                           <span className={`inline-block px-1.5 py-0.5 rounded ${(purchase.paymentStatus || '').toLowerCase() === 'paid' ? 'bg-green-100 text-green-800' : (purchase.paymentStatus || '').toLowerCase() === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-neutral-100 text-neutral-700'}`}>
                             {purchase.paymentStatus || 'Unpaid'}
                           </span>
+                          {purchase.isOverdue && (
+                            <span className="inline-block ml-1 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-xs font-medium">Overdue</span>
+                          )}
                         </div>
                         {purchase.subtotal != null && purchase.vatTotal != null && (
                           <>
@@ -1792,9 +1824,9 @@ const PurchasesPage = () => {
                       <div className="flex flex-wrap items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
                         {['Unpaid', 'Partial'].includes(purchase.paymentStatus || '') && (
                           <button
-                            onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1`)}
+                            onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1&amount=${purchase.balanceAmount ?? purchase.totalAmount}&ref=${encodeURIComponent(purchase.invoiceNo || '')}`)}
                             className="bg-green-50 text-green-600 hover:bg-green-600 hover:text-white border border-green-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
-                            title="Open Supplier Ledger to pay"
+                            title={`Pay AED ${(purchase.balanceAmount ?? purchase.totalAmount ?? 0).toFixed(2)}`}
                           >
                             <DollarSign className="h-3.5 w-3.5" /> Pay
                           </button>

@@ -199,10 +199,22 @@ const ExpensesPage = () => {
   const [expenseSummary, setExpenseSummary] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [dateRange, setDateRange] = useState({
-    from: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    to: new Date().toISOString().split('T')[0]
+  const EXPENSES_DATE_RANGE_KEY = 'EXPENSES_DATE_RANGE'
+  const EXPENSES_BRANCH_KEY = 'EXPENSES_BRANCH'
+  const [dateRange, setDateRange] = useState(() => {
+    try {
+      const saved = localStorage.getItem(EXPENSES_DATE_RANGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.from && parsed.to) return parsed
+      }
+    } catch {}
+    return {
+      from: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      to: new Date().toISOString().split('T')[0]
+    }
   })
+  const [pendingDateRange, setPendingDateRange] = useState(dateRange)
   const [groupBy, setGroupBy] = useState('') // '', 'weekly', 'monthly', 'yearly'
   const [showAggregated, setShowAggregated] = useState(false)
   const [aggregatedData, setAggregatedData] = useState([])
@@ -218,7 +230,9 @@ const ExpensesPage = () => {
   })
 
   const [categories, setCategories] = useState([])
-  const [selectedBranchId, setSelectedBranchId] = useState('')
+  const [selectedBranchId, setSelectedBranchId] = useState(() => {
+    try { return localStorage.getItem(EXPENSES_BRANCH_KEY) || '' } catch { return '' }
+  })
   const [attachmentFile, setAttachmentFile] = useState(null)
   const [attachmentPreview, setAttachmentPreview] = useState(null)
   const [showRecurringModal, setShowRecurringModal] = useState(false)
@@ -288,6 +302,14 @@ const ExpensesPage = () => {
   }, [watchedCategoryId, selectedCategory?.id, showEditModal, setValue])
 
 
+  useEffect(() => {
+    try { localStorage.setItem(EXPENSES_DATE_RANGE_KEY, JSON.stringify(dateRange)) } catch {}
+  }, [dateRange])
+
+  useEffect(() => {
+    try { localStorage.setItem(EXPENSES_BRANCH_KEY, selectedBranchId) } catch {}
+  }, [selectedBranchId])
+
   const fetchExpenses = useCallback(async () => {
     try {
       setLoading(true)
@@ -297,6 +319,7 @@ const ExpensesPage = () => {
         fromDate: dateRange.from,
         toDate: dateRange.to
       }
+      if (selectedBranchId) params.branchId = selectedBranchId
 
       // Fetch aggregated view if enabled
       if (showAggregated && groupBy) {
@@ -385,7 +408,7 @@ const ExpensesPage = () => {
     } finally {
       setLoading(false)
     }
-  }, [currentPage, dateRange, showAggregated, groupBy])
+  }, [currentPage, dateRange, showAggregated, groupBy, selectedBranchId])
 
   const filterExpenses = useCallback(() => {
     if (!searchTerm) {
@@ -837,7 +860,7 @@ const ExpensesPage = () => {
 
   // TALLY ERP LEDGER STYLE
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div className="min-h-screen bg-neutral-50 w-full">
       {/* Top Bar - Mobile Responsive */}
       <div className="bg-white border-b border-neutral-200 px-2 sm:px-4 py-2">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
@@ -911,7 +934,7 @@ const ExpensesPage = () => {
         </div>
       </div>
 
-      <div className="p-2 sm:p-4">
+      <div className="p-2 sm:p-4 w-full">
         {/* Filters */}
         <div className="bg-white rounded-xl border border-neutral-200 p-3 sm:p-4 mb-4">
           <div className="flex items-center mb-3">
@@ -927,7 +950,9 @@ const ExpensesPage = () => {
                 const to = new Date().toISOString().split('T')[0]
                 const from = new Date()
                 from.setDate(from.getDate() - 7)
-                setDateRange({ from: from.toISOString().split('T')[0], to })
+                const r = { from: from.toISOString().split('T')[0], to }
+                setPendingDateRange(r)
+                setDateRange(r)
               }}
               className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
             >
@@ -938,8 +963,10 @@ const ExpensesPage = () => {
               onClick={() => {
                 const to = new Date()
                 const from = new Date(to)
-                from.setDate(from.getDate() - from.getDay()) // Start of week
-                setDateRange({ from: from.toISOString().split('T')[0], to: to.toISOString().split('T')[0] })
+                from.setDate(from.getDate() - from.getDay())
+                const r = { from: from.toISOString().split('T')[0], to: to.toISOString().split('T')[0] }
+                setPendingDateRange(r)
+                setDateRange(r)
               }}
               className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
             >
@@ -950,8 +977,10 @@ const ExpensesPage = () => {
               onClick={() => {
                 const to = new Date().toISOString().split('T')[0]
                 const from = new Date()
-                from.setDate(1) // First day of month
-                setDateRange({ from: from.toISOString().split('T')[0], to })
+                from.setDate(1)
+                const r = { from: from.toISOString().split('T')[0], to }
+                setPendingDateRange(r)
+                setDateRange(r)
               }}
               className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
             >
@@ -962,8 +991,10 @@ const ExpensesPage = () => {
               onClick={() => {
                 const to = new Date().toISOString().split('T')[0]
                 const from = new Date()
-                from.setFullYear(from.getFullYear(), 0, 1) // First day of year
-                setDateRange({ from: from.toISOString().split('T')[0], to })
+                from.setFullYear(from.getFullYear(), 0, 1)
+                const r = { from: from.toISOString().split('T')[0], to }
+                setPendingDateRange(r)
+                setDateRange(r)
               }}
               className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
             >
@@ -978,19 +1009,28 @@ const ExpensesPage = () => {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Input
               label="From Date"
               type="date"
-              value={dateRange.from}
-              onChange={(e) => setDateRange(prev => ({ ...prev, from: e.target.value }))}
+              value={pendingDateRange.from}
+              onChange={(e) => setPendingDateRange(prev => ({ ...prev, from: e.target.value }))}
             />
             <Input
               label="To Date"
               type="date"
-              value={dateRange.to}
-              onChange={(e) => setDateRange(prev => ({ ...prev, to: e.target.value }))}
+              value={pendingDateRange.to}
+              onChange={(e) => setPendingDateRange(prev => ({ ...prev, to: e.target.value }))}
             />
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => setDateRange({ ...pendingDateRange })}
+                className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 text-xs sm:text-sm w-full"
+              >
+                Apply Dates
+              </button>
+            </div>
             <div className="flex items-end gap-2">
               <Select
                 label="Group By"

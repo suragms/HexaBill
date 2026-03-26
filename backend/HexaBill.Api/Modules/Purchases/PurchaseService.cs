@@ -30,11 +30,88 @@ namespace HexaBill.Api.Modules.Purchases
     {
         private readonly AppDbContext _context;
         private readonly IVatReturnValidationService _vatValidation;
+        private const decimal SettlementToleranceAed = 0.05m;
 
         public PurchaseService(AppDbContext context, IVatReturnValidationService vatValidation)
         {
             _context = context;
             _vatValidation = vatValidation;
+        }
+
+        /// <summary>
+        /// Compute per-purchase FIFO payment status aligned with SupplierService balance formula:
+        /// Net = Purchases - Returns - Payments - LedgerCredits.
+        /// Returns reduce each purchase's effective amount; ledger credits widen the payment pool.
+        /// </summary>
+        private async Task<Dictionary<int, (decimal PaidAmount, decimal BalanceAmount, string PaymentStatus, decimal VendorDiscountAmount, bool IsOverdue)>>
+            ComputeFifoPaymentStatusAsync(int tenantId, IEnumerable<string>? supplierFilter = null)
+        {
+            var result = new Dictionary<int, (decimal PaidAmount, decimal BalanceAmount, string PaymentStatus, decimal VendorDiscountAmount, bool IsOverdue)>();
+
+            var suppliersQuery = _context.Purchases.Where(p => p.TenantId == tenantId).Select(p => p.SupplierName).Distinct();
+            var supplierNames = supplierFilter != null
+                ? supplierFilter.Distinct().ToList()
+                : await suppliersQuery.ToListAsync();
+
+            foreach (var supName in supplierNames)
+            {
+                var totalPayments = await _context.SupplierPayments
+                    .Where(sp => sp.TenantId == tenantId && sp.SupplierName == supName)
+                    .SumAsync(sp => (decimal?)sp.Amount) ?? 0;
+
+                decimal totalLedgerCredits = 0;
+                try
+                {
+                    totalLedgerCredits = await _context.SupplierLedgerCredits
+                        .Where(slc => slc.TenantId == tenantId && slc.SupplierName == supName)
+                        .SumAsync(slc => (decimal?)slc.Amount) ?? 0;
+                }
+                catch (PostgresException ex) when (ex.SqlState == "42P01") { }
+
+                var returnsByPurchase = await _context.PurchaseReturns
+                    .Include(pr => pr.Purchase)
+                    .Where(pr => pr.Purchase.TenantId == tenantId && pr.Purchase.SupplierName == supName)
+                    .GroupBy(pr => pr.PurchaseId)
+                    .Select(g => new { PurchaseId = g.Key, TotalReturned = g.Sum(pr => pr.GrandTotal) })
+                    .ToListAsync();
+                var returnsLookup = returnsByPurchase.ToDictionary(r => r.PurchaseId, r => r.TotalReturned);
+
+                var supplierPurchases = await _context.Purchases
+                    .Where(p => p.TenantId == tenantId && p.SupplierName == supName)
+                    .OrderBy(p => p.PurchaseDate)
+                    .Select(p => new { p.Id, p.TotalAmount, p.DueDate })
+                    .ToListAsync();
+
+                decimal remainingPaymentPool = totalPayments + totalLedgerCredits;
+                decimal creditPerPurchase = supplierPurchases.Count > 0
+                    ? totalLedgerCredits / supplierPurchases.Count
+                    : 0;
+
+                foreach (var sp in supplierPurchases)
+                {
+                    var returnAmount = returnsLookup.GetValueOrDefault(sp.Id, 0);
+                    var effectiveAmount = Math.Max(0, sp.TotalAmount - returnAmount);
+                    var paidForThis = Math.Min(effectiveAmount, Math.Max(0, remainingPaymentPool));
+                    remainingPaymentPool -= paidForThis;
+                    var balance = effectiveAmount - paidForThis;
+
+                    string payStatus;
+                    if (balance <= SettlementToleranceAed)
+                        payStatus = "Paid";
+                    else if (paidForThis <= SettlementToleranceAed)
+                        payStatus = "Unpaid";
+                    else
+                        payStatus = "Partial";
+
+                    bool isOverdue = sp.DueDate.HasValue
+                        && sp.DueDate.Value.Date < DateTime.UtcNow.Date
+                        && balance > SettlementToleranceAed;
+
+                    result[sp.Id] = (paidForThis, balance, payStatus, Math.Round(creditPerPurchase, 2), isOverdue);
+                }
+            }
+
+            return result;
         }
 
         public async Task<PagedResponse<PurchaseDto>> GetPurchasesAsync(int tenantId, int page = 1, int pageSize = 10, DateTime? startDate = null, DateTime? endDate = null, string? supplierName = null, string? category = null, string? status = null)
@@ -93,34 +170,12 @@ namespace HexaBill.Api.Modules.Purchases
                 .ToListAsync();
 
             var supplierNames = purchaseEntities.Select(p => p.SupplierName).Distinct().ToList();
-            var paymentStatusByPurchaseId = new Dictionary<int, (decimal PaidAmount, decimal BalanceAmount, string PaymentStatus)>();
-
-            foreach (var supName in supplierNames)
-            {
-                var totalPayments = await _context.SupplierPayments
-                    .Where(sp => sp.TenantId == tenantId && sp.SupplierName == supName)
-                    .SumAsync(sp => (decimal?)sp.Amount) ?? 0;
-
-                var supplierPurchases = await _context.Purchases
-                    .Where(p => p.TenantId == tenantId && p.SupplierName == supName)
-                    .OrderBy(p => p.PurchaseDate)
-                    .Select(p => new { p.Id, p.TotalAmount })
-                    .ToListAsync();
-
-                decimal remainingPaymentPool = totalPayments;
-                foreach (var sp in supplierPurchases)
-                {
-                    var paidForThis = Math.Min(sp.TotalAmount, Math.Max(0, remainingPaymentPool));
-                    remainingPaymentPool -= paidForThis;
-                    var balance = sp.TotalAmount - paidForThis;
-                    var payStatus = paidForThis <= 0 ? "Unpaid" : paidForThis >= sp.TotalAmount ? "Paid" : "Partial";
-                    paymentStatusByPurchaseId[sp.Id] = (paidForThis, balance, payStatus);
-                }
-            }
+            var paymentStatusByPurchaseId = await ComputeFifoPaymentStatusAsync(tenantId, supplierNames);
 
             var purchases = purchaseEntities.Select(p =>
             {
-                var (paidAmount, balanceAmount, paymentStatus) = paymentStatusByPurchaseId.TryGetValue(p.Id, out var v) ? v : (0m, p.TotalAmount, "Unpaid");
+                var (paidAmount, balanceAmount, paymentStatus, vendorDiscount, isOverdue) = paymentStatusByPurchaseId.TryGetValue(p.Id, out var v)
+                    ? v : (0m, p.TotalAmount, "Unpaid", 0m, false);
                 return new PurchaseDto
                 {
                     Id = p.Id,
@@ -135,6 +190,9 @@ namespace HexaBill.Api.Modules.Purchases
                     PaidAmount = paidAmount,
                     BalanceAmount = balanceAmount,
                     PaymentStatus = paymentStatus,
+                    VendorDiscountAmount = vendorDiscount,
+                    IsOverdue = isOverdue,
+                    DueDate = p.DueDate,
                     Items = p.Items.Select(i => new PurchaseItemDto
                     {
                         Id = i.Id,
@@ -153,7 +211,10 @@ namespace HexaBill.Api.Modules.Purchases
             if (!string.IsNullOrWhiteSpace(status) && !status.Equals("all", StringComparison.OrdinalIgnoreCase))
             {
                 var statusLower = status.ToLowerInvariant();
-                purchases = purchases.Where(p => string.Equals(p.PaymentStatus, statusLower, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (statusLower == "overdue")
+                    purchases = purchases.Where(p => p.IsOverdue).ToList();
+                else
+                    purchases = purchases.Where(p => string.Equals(p.PaymentStatus, statusLower, StringComparison.OrdinalIgnoreCase)).ToList();
             }
 
             return new PagedResponse<PurchaseDto>
@@ -168,7 +229,6 @@ namespace HexaBill.Api.Modules.Purchases
 
         public async Task<PurchaseDto?> GetPurchaseByIdAsync(int id, int tenantId)
         {
-            // CRITICAL: Multi-tenant data isolation - Skip filter for super admin (TenantId = 0)
             IQueryable<Purchase> baseQuery = _context.Purchases.Where(p => p.Id == id);
             
             if (tenantId > 0)
@@ -183,24 +243,9 @@ namespace HexaBill.Api.Modules.Purchases
 
             if (purchase == null) return null;
 
-            var totalPayments = await _context.SupplierPayments
-                .Where(sp => sp.TenantId == tenantId && sp.SupplierName == purchase.SupplierName)
-                .SumAsync(sp => (decimal?)sp.Amount) ?? 0;
-            var supplierPurchases = await _context.Purchases
-                .Where(p => p.TenantId == tenantId && p.SupplierName == purchase.SupplierName)
-                .OrderBy(p => p.PurchaseDate)
-                .Select(p => new { p.Id, p.TotalAmount })
-                .ToListAsync();
-            decimal pool = totalPayments;
-            decimal paidForThis = 0;
-            foreach (var sp in supplierPurchases)
-            {
-                var paid = Math.Min(sp.TotalAmount, Math.Max(0, pool));
-                pool -= paid;
-                if (sp.Id == purchase.Id) { paidForThis = paid; break; }
-            }
-            var balanceAmount = purchase.TotalAmount - paidForThis;
-            var paymentStatus = paidForThis <= 0 ? "Unpaid" : paidForThis >= purchase.TotalAmount ? "Paid" : "Partial";
+            var fifoStatus = await ComputeFifoPaymentStatusAsync(tenantId, new[] { purchase.SupplierName });
+            var (paidForThis, balanceAmount, paymentStatus, vendorDiscount, isOverdue) = fifoStatus.TryGetValue(purchase.Id, out var v)
+                ? v : (0m, purchase.TotalAmount, "Unpaid", 0m, false);
 
             return new PurchaseDto
             {
@@ -216,6 +261,9 @@ namespace HexaBill.Api.Modules.Purchases
                 PaidAmount = paidForThis,
                 BalanceAmount = balanceAmount,
                 PaymentStatus = paymentStatus,
+                VendorDiscountAmount = vendorDiscount,
+                IsOverdue = isOverdue,
+                DueDate = purchase.DueDate,
                 Items = purchase.Items.Select(i => new PurchaseItemDto
                 {
                     Id = i.Id,
@@ -936,45 +984,17 @@ namespace HexaBill.Api.Modules.Purchases
             };
         }
 
-        /// <summary>Total pending to pay (purchase balances) and counts by status: Unpaid, Partial, Paid.</summary>
+        /// <summary>Total pending to pay (purchase balances) and counts by status: Unpaid, Partial, Paid, Overdue.</summary>
         public async Task<PurchasePendingSummaryDto> GetPendingSummaryAsync(int tenantId)
         {
-            var supplierNames = await _context.Purchases
-                .Where(p => p.TenantId == tenantId)
-                .Select(p => p.SupplierName)
-                .Distinct()
-                .ToListAsync();
-
-            var paymentStatusByPurchaseId = new Dictionary<int, (decimal PaidAmount, decimal BalanceAmount, string PaymentStatus)>();
-
-            foreach (var supName in supplierNames)
-            {
-                var totalPayments = await _context.SupplierPayments
-                    .Where(sp => sp.TenantId == tenantId && sp.SupplierName == supName)
-                    .SumAsync(sp => (decimal?)sp.Amount) ?? 0;
-
-                var supplierPurchases = await _context.Purchases
-                    .Where(p => p.TenantId == tenantId && p.SupplierName == supName)
-                    .OrderBy(p => p.PurchaseDate)
-                    .Select(p => new { p.Id, p.TotalAmount })
-                    .ToListAsync();
-
-                decimal remainingPaymentPool = totalPayments;
-                foreach (var sp in supplierPurchases)
-                {
-                    var paidForThis = Math.Min(sp.TotalAmount, Math.Max(0, remainingPaymentPool));
-                    remainingPaymentPool -= paidForThis;
-                    var balance = sp.TotalAmount - paidForThis;
-                    var payStatus = paidForThis <= 0 ? "Unpaid" : paidForThis >= sp.TotalAmount ? "Paid" : "Partial";
-                    paymentStatusByPurchaseId[sp.Id] = (paidForThis, balance, payStatus);
-                }
-            }
+            var paymentStatusByPurchaseId = await ComputeFifoPaymentStatusAsync(tenantId);
 
             decimal totalPendingToPay = 0;
-            int unpaidCount = 0, partialCount = 0, paidCount = 0;
+            int unpaidCount = 0, partialCount = 0, paidCount = 0, overdueCount = 0;
             foreach (var kv in paymentStatusByPurchaseId)
             {
-                var (_, balance, status) = kv.Value;
+                var (_, balance, status, _, isOverdue) = kv.Value;
+                if (isOverdue) overdueCount++;
                 if (string.Equals(status, "Unpaid", StringComparison.OrdinalIgnoreCase)) { unpaidCount++; totalPendingToPay += balance; }
                 else if (string.Equals(status, "Partial", StringComparison.OrdinalIgnoreCase)) { partialCount++; totalPendingToPay += balance; }
                 else if (string.Equals(status, "Paid", StringComparison.OrdinalIgnoreCase)) paidCount++;
@@ -986,7 +1006,8 @@ namespace HexaBill.Api.Modules.Purchases
                 TotalPendingToPay = totalPendingToPay,
                 UnpaidCount = unpaidCount,
                 PartialCount = partialCount,
-                PaidCount = paidCount
+                PaidCount = paidCount,
+                OverdueCount = overdueCount
             };
         }
     }
@@ -997,6 +1018,7 @@ namespace HexaBill.Api.Modules.Purchases
         public int UnpaidCount { get; set; }
         public int PartialCount { get; set; }
         public int PaidCount { get; set; }
+        public int OverdueCount { get; set; }
     }
 
     public class PurchaseDto
@@ -1016,6 +1038,9 @@ namespace HexaBill.Api.Modules.Purchases
         public decimal PaidAmount { get; set; }
         public decimal BalanceAmount { get; set; }
         public string? PaymentStatus { get; set; } // Unpaid, Partial, Paid
+        public decimal VendorDiscountAmount { get; set; }
+        public bool IsOverdue { get; set; }
+        public DateTime? DueDate { get; set; }
 
         /// <summary>True if input VAT can be claimed in VAT Return (Box 9b). Must be true for purchase to appear in Box 9b.</summary>
         public bool IsTaxClaimable { get; set; }
