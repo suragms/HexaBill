@@ -381,7 +381,8 @@ namespace HexaBill.Api.Modules.SuperAdmin
                 { "VAT_EFFECTIVE_DATE", "01-01-2026" },
                 { "VAT_LEGAL_TEXT", "VAT registered under Federal Decree-Law No. 8 of 2017, UAE" },
                 { "LOGO_PATH", "/uploads/logo.png" },
-                { "LOW_STOCK_GLOBAL_THRESHOLD", "" } // Optional: alert when stock <= this for products with ReorderLevel 0 (#55)
+                { "LOW_STOCK_GLOBAL_THRESHOLD", "" }, // Optional: alert when stock <= this for products with ReorderLevel 0 (#55)
+                { "ALLOW_NEGATIVE_STOCK", "false" }
             };
         }
     }

@@ -55,6 +55,7 @@ namespace HexaBill.Api.Modules.Billing
         private readonly ISalesSchemaService _salesSchema;
         private readonly ISaleValidationService _saleValidation;
         private readonly IVatReturnValidationService _vatValidation;
+        private readonly ISettingsService _settingsService;
         private readonly ILogger<SaleService> _logger;
 
         public SaleService(
@@ -70,11 +71,13 @@ namespace HexaBill.Api.Modules.Billing
             ISalesSchemaService salesSchema,
             ISaleValidationService saleValidation,
             IVatReturnValidationService vatValidation,
+            ISettingsService settingsService,
             ILogger<SaleService> logger)
         {
             _context = context;
             _saleValidation = saleValidation;
             _vatValidation = vatValidation;
+            _settingsService = settingsService;
             _logger = logger;
             _pdfService = pdfService;
             _backupService = backupService;
@@ -85,6 +88,12 @@ namespace HexaBill.Api.Modules.Billing
             _timeZoneService = timeZoneService;
             _routeScopeService = routeScopeService;
             _salesSchema = salesSchema;
+        }
+
+        private async Task<bool> IsNegativeStockAllowedAsync(int tenantId)
+        {
+            var val = await _settingsService.GetSettingValueAsync(tenantId, "ALLOW_NEGATIVE_STOCK");
+            return string.Equals(val, "true", StringComparison.OrdinalIgnoreCase);
         }
 
         public async Task<PagedResponse<SaleDto>> GetSalesAsync(int tenantId, int page = 1, int pageSize = 10, string? search = null, int? branchId = null, int? routeId = null, int? userIdForStaff = null, string? roleForStaff = null, DateTime? fromDate = null, DateTime? toDate = null)
@@ -667,6 +676,7 @@ namespace HexaBill.Api.Modules.Billing
 
                 // Calculate totals — VAT% from company settings (tenant-scoped), not hardcoded. PRODUCTION_MASTER_TODO #37
                 var vatPercent = await GetVatPercentAsync(tenantId);
+                var allowNegativeStock = await IsNegativeStockAllowedAsync(tenantId);
                 var isZeroInvoice = request.IsZeroInvoice;
                 decimal subtotal = 0;
                 decimal vatTotal = 0;
@@ -692,18 +702,20 @@ namespace HexaBill.Api.Modules.Billing
                         validationErrors.AddRange(priceResult.Errors.Select(e => $"Item {item.ProductId}: {e}"));
                     }
 
-                    // Validate stock availability
-                    var stockResult = await _validationService.ValidateStockAvailabilityAsync(item.ProductId, item.Qty);
-                    if (!stockResult.IsValid)
+                    // Validate stock availability (skip if negative stock allowed)
+                    if (!allowNegativeStock)
                     {
-                        validationErrors.AddRange(stockResult.Errors);
-                    }
-                    else if (stockResult.Warnings.Any())
-                    {
-                        // Log warnings but don't fail
-                        foreach (var warning in stockResult.Warnings)
+                        var stockResult = await _validationService.ValidateStockAvailabilityAsync(item.ProductId, item.Qty);
+                        if (!stockResult.IsValid)
                         {
-                            _logger.LogWarning("Stock Warning: {Warning}", warning);
+                            validationErrors.AddRange(stockResult.Errors);
+                        }
+                        else if (stockResult.Warnings.Any())
+                        {
+                            foreach (var warning in stockResult.Warnings)
+                            {
+                                _logger.LogWarning("Stock Warning: {Warning}", warning);
+                            }
                         }
                     }
                 }
@@ -713,42 +725,40 @@ namespace HexaBill.Api.Modules.Billing
                     throw new InvalidOperationException(string.Join("\n", validationErrors));
                 }
 
-                // CRITICAL FIX: Validate ALL stock availability BEFORE updating any stock
-                // This prevents partial updates where Product A stock is decremented but Product B fails
-                var stockValidationErrors = new List<string>();
-                var productStockChecks = new List<(int ProductId, decimal RequiredQty, string ProductName)>();
-                
-                foreach (var item in request.Items)
+                if (!allowNegativeStock)
                 {
-                    // CRITICAL MULTI-TENANT FIX: Filter product by tenantId to prevent cross-owner access
-                    var product = await _context.Products
-                        .AsNoTracking() // Use AsNoTracking for read-only validation
-                        .FirstOrDefaultAsync(p => p.Id == item.ProductId && p.TenantId == tenantId);
-
-                    if (product == null)
+                    // Validate ALL stock availability BEFORE updating any stock
+                    var stockValidationErrors = new List<string>();
+                    var productStockChecks = new List<(int ProductId, decimal RequiredQty, string ProductName)>();
+                    
+                    foreach (var item in request.Items)
                     {
-                        stockValidationErrors.Add($"Product with ID {item.ProductId} not found for your account.");
-                        continue;
+                        var product = await _context.Products
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(p => p.Id == item.ProductId && p.TenantId == tenantId);
+
+                        if (product == null)
+                        {
+                            stockValidationErrors.Add($"Product with ID {item.ProductId} not found for your account.");
+                            continue;
+                        }
+
+                        var baseQty = item.Qty * product.ConversionToBase;
+
+                        if (product.StockQty < baseQty)
+                        {
+                            stockValidationErrors.Add($"Insufficient stock for {product.NameEn}. Available: {product.StockQty}, Required: {baseQty}");
+                        }
+                        else
+                        {
+                            productStockChecks.Add((product.Id, baseQty, product.NameEn));
+                        }
                     }
 
-                    // Calculate base quantity
-                    var baseQty = item.Qty * product.ConversionToBase;
-
-                    // Validate stock availability
-                    if (product.StockQty < baseQty)
+                    if (stockValidationErrors.Any())
                     {
-                        stockValidationErrors.Add($"Insufficient stock for {product.NameEn}. Available: {product.StockQty}, Required: {baseQty}");
+                        throw new InvalidOperationException(string.Join("\n", stockValidationErrors));
                     }
-                    else
-                    {
-                        productStockChecks.Add((product.Id, baseQty, product.NameEn));
-                    }
-                }
-
-                // If any stock validation fails, throw before updating any stock
-                if (stockValidationErrors.Any())
-                {
-                    throw new InvalidOperationException(string.Join("\n", stockValidationErrors));
                 }
 
                 // Now update stock atomically - all validations passed
@@ -789,18 +799,29 @@ namespace HexaBill.Api.Modules.Billing
                     saleItems.Add(saleItem);
 
                     // PROD-19: Atomic stock update to prevent race conditions
-                    // Use SQL UPDATE to atomically decrement stock and prevent concurrent update issues
-                    var rowsAffected = await _context.Database.ExecuteSqlInterpolatedAsync(
-                        $@"UPDATE ""Products"" 
-                           SET ""StockQty"" = ""StockQty"" - {baseQty}, 
-                               ""UpdatedAt"" = {DateTime.UtcNow}
-                           WHERE ""Id"" = {product.Id} 
-                             AND ""TenantId"" = {tenantId}
-                             AND ""StockQty"" >= {baseQty}");
+                    int rowsAffected;
+                    if (allowNegativeStock)
+                    {
+                        rowsAffected = await _context.Database.ExecuteSqlInterpolatedAsync(
+                            $@"UPDATE ""Products"" 
+                               SET ""StockQty"" = ""StockQty"" - {baseQty}, 
+                                   ""UpdatedAt"" = {DateTime.UtcNow}
+                               WHERE ""Id"" = {product.Id} 
+                                 AND ""TenantId"" = {tenantId}");
+                    }
+                    else
+                    {
+                        rowsAffected = await _context.Database.ExecuteSqlInterpolatedAsync(
+                            $@"UPDATE ""Products"" 
+                               SET ""StockQty"" = ""StockQty"" - {baseQty}, 
+                                   ""UpdatedAt"" = {DateTime.UtcNow}
+                               WHERE ""Id"" = {product.Id} 
+                                 AND ""TenantId"" = {tenantId}
+                                 AND ""StockQty"" >= {baseQty}");
+                    }
                     
                     if (rowsAffected == 0)
                     {
-                        // Stock was insufficient or product was modified concurrently
                         throw new InvalidOperationException(
                             $"Insufficient stock for {product.NameEn}. Available stock may have changed. Please refresh and try again.");
                     }
@@ -1624,55 +1645,58 @@ namespace HexaBill.Api.Modules.Billing
                 var newVersion = saleForUpdate.Version + 1;
                 var oldTotalsForAudit = new { GrandTotal = saleForUpdate.GrandTotal, Subtotal = saleForUpdate.Subtotal, Discount = saleForUpdate.Discount, VatTotal = saleForUpdate.VatTotal };
 
-                // Use validation service for robust validation
-                var validationResult = await _validationService.ValidateSaleEditAsync(saleId, request.Items);
+                var allowNegativeStock = await IsNegativeStockAllowedAsync(tenantId);
 
-                if (!validationResult.IsValid)
+                // Use validation service for robust validation (stock checks skipped if negative stock allowed)
+                if (!allowNegativeStock)
                 {
-                    await transaction.RollbackAsync();
-                    throw new InvalidOperationException(
-                        "VALIDATION FAILED:\n" +
-                        string.Join("\n", validationResult.Errors) +
-                        "\n\nPlease correct the errors and try again."
-                    );
-                }
+                    var validationResult = await _validationService.ValidateSaleEditAsync(saleId, request.Items);
 
-                // STOCK CONFLICT PREVENTION: Check all products have sufficient stock BEFORE making changes
-                var stockConflicts = new List<string>();
-                foreach (var item in request.Items)
-                {
-                    // PROD-4: Filter by TenantId for tenant isolation
-                    var product = await _context.Products
-                        .FirstOrDefaultAsync(p => p.Id == item.ProductId && p.TenantId == tenantId);
-                    if (product == null)
+                    if (!validationResult.IsValid)
                     {
-                        stockConflicts.Add($"Product ID {item.ProductId} not found for your account");
-                        continue;
-                    }
-
-                    var baseQty = item.Qty * product.ConversionToBase;
-                    
-                    // Calculate current available stock (after restoring old quantities)
-                    var oldItem = saleForUpdate.Items?.FirstOrDefault(i => i != null && i.ProductId == item.ProductId);
-                    var oldBaseQty = (oldItem != null && product != null) ? oldItem.Qty * product.ConversionToBase : 0;
-                    var availableAfterRestore = (product?.StockQty ?? 0) + oldBaseQty;
-
-                    if (availableAfterRestore < baseQty)
-                    {
-                        stockConflicts.Add(
-                            $"{product.NameEn}: Available: {availableAfterRestore}, Required: {baseQty}"
+                        await transaction.RollbackAsync();
+                        throw new InvalidOperationException(
+                            "VALIDATION FAILED:\n" +
+                            string.Join("\n", validationResult.Errors) +
+                            "\n\nPlease correct the errors and try again."
                         );
                     }
-                }
 
-                if (stockConflicts.Any())
-                {
-                    await transaction.RollbackAsync();
-                    throw new InvalidOperationException(
-                        "STOCK CONFLICT: Insufficient stock for the following products:\n" +
-                        string.Join("\n", stockConflicts) +
-                        "\n\nPlease check current stock levels and adjust quantities."
-                    );
+                    // STOCK CONFLICT PREVENTION: Check all products have sufficient stock BEFORE making changes
+                    var stockConflicts = new List<string>();
+                    foreach (var item in request.Items)
+                    {
+                        var product = await _context.Products
+                            .FirstOrDefaultAsync(p => p.Id == item.ProductId && p.TenantId == tenantId);
+                        if (product == null)
+                        {
+                            stockConflicts.Add($"Product ID {item.ProductId} not found for your account");
+                            continue;
+                        }
+
+                        var baseQty = item.Qty * product.ConversionToBase;
+                        
+                        var oldItem = saleForUpdate.Items?.FirstOrDefault(i => i != null && i.ProductId == item.ProductId);
+                        var oldBaseQty = (oldItem != null && product != null) ? oldItem.Qty * product.ConversionToBase : 0;
+                        var availableAfterRestore = (product?.StockQty ?? 0) + oldBaseQty;
+
+                        if (availableAfterRestore < baseQty)
+                        {
+                            stockConflicts.Add(
+                                $"{product.NameEn}: Available: {availableAfterRestore}, Required: {baseQty}"
+                            );
+                        }
+                    }
+
+                    if (stockConflicts.Any())
+                    {
+                        await transaction.RollbackAsync();
+                        throw new InvalidOperationException(
+                            "STOCK CONFLICT: Insufficient stock for the following products:\n" +
+                            string.Join("\n", stockConflicts) +
+                            "\n\nPlease check current stock levels and adjust quantities."
+                        );
+                    }
                 }
 
                 // REVERSE OLD TRANSACTIONS: Restore stock and reverse inventory transactions
@@ -1750,22 +1774,22 @@ namespace HexaBill.Api.Modules.Billing
 
                     var baseQty = item.Qty * product.ConversionToBase;
 
-                    // Check stock availability (stock was already restored from old items)
-                    // But we need to account for items already processed in this loop
-                    // Find if this product appears multiple times in the request
-                    var qtyAlreadyProcessed = newSaleItems
-                        .Where(si => si.ProductId == item.ProductId)
-                        .Sum(si => si.Qty * product.ConversionToBase);
-                    
-                    var availableStock = product.StockQty - qtyAlreadyProcessed;
-                    
-                    if (availableStock < baseQty)
+                    if (!allowNegativeStock)
                     {
-                        throw new InvalidOperationException(
-                            $"Insufficient stock for {product.NameEn}. " +
-                            $"Available: {availableStock}, Required: {baseQty}. " +
-                            $"Note: Stock from old invoice items has been restored."
-                        );
+                        var qtyAlreadyProcessed = newSaleItems
+                            .Where(si => si.ProductId == item.ProductId)
+                            .Sum(si => si.Qty * product.ConversionToBase);
+                        
+                        var availableStock = product.StockQty - qtyAlreadyProcessed;
+                        
+                        if (availableStock < baseQty)
+                        {
+                            throw new InvalidOperationException(
+                                $"Insufficient stock for {product.NameEn}. " +
+                                $"Available: {availableStock}, Required: {baseQty}. " +
+                                $"Note: Stock from old invoice items has been restored."
+                            );
+                        }
                     }
 
                     var rowTotal = isZeroInvoice ? 0 : (item.UnitPrice * item.Qty);
@@ -1791,15 +1815,26 @@ namespace HexaBill.Api.Modules.Billing
                     newSaleItems.Add(saleItem);
 
                     // PROD-19: Atomic stock update for edited invoice
-                    // Old stock was already restored above
-                    // Now decrement stock for new quantities (delta calculation)
-                    var rowsAffected = await _context.Database.ExecuteSqlInterpolatedAsync(
-                        $@"UPDATE ""Products"" 
-                           SET ""StockQty"" = ""StockQty"" - {baseQty}, 
-                               ""UpdatedAt"" = {DateTime.UtcNow}
-                           WHERE ""Id"" = {product.Id} 
-                             AND ""TenantId"" = {tenantId}
-                             AND ""StockQty"" >= {baseQty}");
+                    int rowsAffected;
+                    if (allowNegativeStock)
+                    {
+                        rowsAffected = await _context.Database.ExecuteSqlInterpolatedAsync(
+                            $@"UPDATE ""Products"" 
+                               SET ""StockQty"" = ""StockQty"" - {baseQty}, 
+                                   ""UpdatedAt"" = {DateTime.UtcNow}
+                               WHERE ""Id"" = {product.Id} 
+                                 AND ""TenantId"" = {tenantId}");
+                    }
+                    else
+                    {
+                        rowsAffected = await _context.Database.ExecuteSqlInterpolatedAsync(
+                            $@"UPDATE ""Products"" 
+                               SET ""StockQty"" = ""StockQty"" - {baseQty}, 
+                                   ""UpdatedAt"" = {DateTime.UtcNow}
+                               WHERE ""Id"" = {product.Id} 
+                                 AND ""TenantId"" = {tenantId}
+                                 AND ""StockQty"" >= {baseQty}");
+                    }
                     
                     if (rowsAffected == 0)
                     {

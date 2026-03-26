@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Edit, Trash2, Package, AlertTriangle, Search, Filter, RefreshCw, Download, Upload, MoreVertical, RotateCw, Tag, Image as ImageIcon, X } from 'lucide-react'
+import { Plus, Edit, Trash2, Package, AlertTriangle, Search, Filter, RefreshCw, Download, Upload, MoreVertical, RotateCw, Tag, Image as ImageIcon, X, History, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
 import { productsAPI, stockAdjustmentsAPI, productCategoriesAPI } from '../../services'
 import ProductForm from '../../components/ProductForm'
 import StockAdjustmentModal from '../../components/StockAdjustmentModal'
@@ -49,6 +49,14 @@ const ProductsPage = () => {
     onConfirm: () => { }
   })
 
+  // Stock Movement tab state
+  const [movements, setMovements] = useState([])
+  const [movementsLoading, setMovementsLoading] = useState(false)
+  const [movementsPage, setMovementsPage] = useState(1)
+  const [movementsTotalPages, setMovementsTotalPages] = useState(1)
+  const [movementsTotalCount, setMovementsTotalCount] = useState(0)
+  const [movementsFilter, setMovementsFilter] = useState({ fromDate: '', toDate: '', transactionType: '' })
+
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
 
   const loadProducts = useCallback(async () => {
@@ -93,6 +101,33 @@ const ProductsPage = () => {
       setLoading(false)
     }
   }, [currentPage, pageSize, debouncedSearchTerm, activeTab, activeFilters])
+
+  const loadStockMovements = useCallback(async () => {
+    try {
+      setMovementsLoading(true)
+      const params = { page: movementsPage, pageSize: 20 }
+      if (movementsFilter.fromDate) params.fromDate = movementsFilter.fromDate
+      if (movementsFilter.toDate) params.toDate = movementsFilter.toDate
+      if (movementsFilter.transactionType) params.transactionType = movementsFilter.transactionType
+      const response = await productsAPI.getStockMovements(params)
+      if (response?.success && response?.data) {
+        setMovements(response.data.items || [])
+        setMovementsTotalPages(response.data.totalPages || 1)
+        setMovementsTotalCount(response.data.totalCount || 0)
+      }
+    } catch (error) {
+      console.error('Error loading stock movements:', error)
+      if (!error?._handledByInterceptor) toast.error('Failed to load stock movements')
+    } finally {
+      setMovementsLoading(false)
+    }
+  }, [movementsPage, movementsFilter])
+
+  useEffect(() => {
+    if (activeTab === 'movements') {
+      loadStockMovements()
+    }
+  }, [activeTab, loadStockMovements])
 
   useEffect(() => {
     loadProducts()
@@ -400,7 +435,8 @@ const ProductsPage = () => {
   const tabs = [
     { id: 'all', label: 'All Products', icon: Package },
     { id: 'lowStock', label: 'Low Stock', icon: AlertTriangle, badge: products.filter(p => p.stockQty <= (p.reorderLevel || 0)).length },
-    { id: 'inactive', label: 'Inactive', icon: Trash2, badge: products.filter(p => !p.isActive).length }
+    { id: 'inactive', label: 'Inactive', icon: Trash2, badge: products.filter(p => !p.isActive).length },
+    { id: 'movements', label: 'Stock Movement', icon: History, badge: movementsTotalCount || null }
   ]
 
   const handleCreateCategory = async () => {
@@ -594,6 +630,111 @@ const ProductsPage = () => {
         </div>
       </div>
 
+      {activeTab === 'movements' ? (
+        /* Stock Movement Tab Content */
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="flex flex-wrap items-center gap-3 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+                <input type="date" value={movementsFilter.fromDate} onChange={(e) => { setMovementsFilter(f => ({ ...f, fromDate: e.target.value })); setMovementsPage(1) }} className="border border-gray-300 rounded px-2 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+                <input type="date" value={movementsFilter.toDate} onChange={(e) => { setMovementsFilter(f => ({ ...f, toDate: e.target.value })); setMovementsPage(1) }} className="border border-gray-300 rounded px-2 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                <select value={movementsFilter.transactionType} onChange={(e) => { setMovementsFilter(f => ({ ...f, transactionType: e.target.value })); setMovementsPage(1) }} className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+                  <option value="">All Types</option>
+                  <option value="Sale">Sale</option>
+                  <option value="Purchase">Purchase</option>
+                  <option value="Adjustment">Adjustment</option>
+                  <option value="Return">Return</option>
+                  <option value="PurchaseReturn">Purchase Return</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button onClick={() => { setMovementsFilter({ fromDate: '', toDate: '', transactionType: '' }); setMovementsPage(1) }} className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-gray-700 font-medium mt-4">
+                  Clear
+                </button>
+              </div>
+              <div className="ml-auto text-sm text-gray-500">
+                {movementsTotalCount} movement{movementsTotalCount !== 1 ? 's' : ''}
+              </div>
+            </div>
+
+            {movementsLoading ? (
+              <div className="flex justify-center py-12">
+                <RefreshCw className="h-6 w-6 animate-spin text-primary-600" />
+              </div>
+            ) : movements.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <History className="h-10 w-10 mx-auto mb-2 text-gray-300" />
+                <p className="font-medium">No stock movements found</p>
+                <p className="text-sm mt-1">Stock movements are recorded when sales, purchases, adjustments, or returns occur.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-700">Date</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-700">Product</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-700">SKU</th>
+                      <th className="px-3 py-2.5 text-center font-semibold text-gray-700">Type</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-gray-700">Qty Change</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-gray-700">Reason</th>
+                      <th className="px-3 py-2.5 text-center font-semibold text-gray-700">Ref</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movements.map((m) => (
+                      <tr key={m.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{new Date(m.createdAt).toLocaleDateString('en-GB')} {new Date(m.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td>
+                        <td className="px-3 py-2.5 font-medium text-gray-900">{m.productName}</td>
+                        <td className="px-3 py-2.5 text-gray-500">{m.productSku || '—'}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                            m.transactionType === 'Sale' ? 'bg-red-100 text-red-700' :
+                            m.transactionType === 'Purchase' ? 'bg-green-100 text-green-700' :
+                            m.transactionType === 'Adjustment' ? 'bg-blue-100 text-blue-700' :
+                            m.transactionType === 'Return' ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {m.transactionType}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono font-semibold">
+                          <span className={`inline-flex items-center gap-1 ${m.changeQty > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {m.changeQty > 0 ? <ArrowUpCircle className="h-3.5 w-3.5" /> : <ArrowDownCircle className="h-3.5 w-3.5" />}
+                            {m.changeQty > 0 ? '+' : ''}{m.changeQty}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-600 max-w-xs truncate">{m.reason || '—'}</td>
+                        <td className="px-3 py-2.5 text-center text-gray-400">{m.refId || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {movementsTotalPages > 1 && (
+              <div className="flex justify-center items-center gap-4 mt-4 pt-4 border-t border-gray-100">
+                <button onClick={() => setMovementsPage(p => Math.max(1, p - 1))} disabled={movementsPage === 1} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50">
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">Page {movementsPage} of {movementsTotalPages}</span>
+                <button onClick={() => setMovementsPage(p => Math.min(movementsTotalPages, p + 1))} disabled={movementsPage === movementsTotalPages} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50">
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+      <>
       {/* Modern Search & Filters */}
       <FilterPanel
         searchPlaceholder="Search products by name, SKU..."
@@ -849,6 +990,7 @@ const ProductsPage = () => {
           </div>
         )
       }
+      </>)}
 
       {/* Product Form Modal */}
       {

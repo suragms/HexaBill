@@ -5,9 +5,10 @@ Date: 2024
 */
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using HexaBill.Api.Modules.Inventory;
 using HexaBill.Api.Models;
-using HexaBill.Api.Shared.Extensions; // MULTI-TENANT: Add helpers for TenantScopedController
+using HexaBill.Api.Shared.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using HexaBill.Api.Modules.SuperAdmin;
 
@@ -663,6 +664,82 @@ namespace HexaBill.Api.Modules.Inventory
                 {
                     Success = false,
                     Message = "Recompute failed",
+                    Errors = new List<string> { ex.Message }
+                });
+            }
+        }
+        [HttpGet("stock-movements")]
+        [Authorize(Roles = "Owner,Admin,Staff")]
+        public async Task<ActionResult<ApiResponse<object>>> GetStockMovements(
+            [FromQuery] int? productId = null,
+            [FromQuery] DateTime? fromDate = null,
+            [FromQuery] DateTime? toDate = null,
+            [FromQuery] string? transactionType = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                var tenantId = CurrentTenantId;
+                if (tenantId <= 0)
+                    return BadRequest(new ApiResponse<object> { Success = false, Message = "Invalid tenant context." });
+
+                var context = HttpContext.RequestServices.GetRequiredService<HexaBill.Api.Data.AppDbContext>();
+
+                var query = context.InventoryTransactions
+                    .Include(t => t.Product)
+                    .Where(t => t.TenantId == tenantId || t.OwnerId == tenantId)
+                    .AsQueryable();
+
+                if (productId.HasValue)
+                    query = query.Where(t => t.ProductId == productId.Value);
+
+                if (fromDate.HasValue)
+                    query = query.Where(t => t.CreatedAt >= fromDate.Value.ToUtcKind());
+
+                if (toDate.HasValue)
+                    query = query.Where(t => t.CreatedAt <= toDate.Value.AddDays(1).AddTicks(-1).ToUtcKind());
+
+                if (!string.IsNullOrWhiteSpace(transactionType) && Enum.TryParse<TransactionType>(transactionType, true, out var tt))
+                    query = query.Where(t => t.TransactionType == tt);
+
+                var totalCount = await query.CountAsync();
+                var items = await query
+                    .OrderByDescending(t => t.CreatedAt)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(t => new
+                    {
+                        t.Id,
+                        ProductName = t.Product != null ? t.Product.NameEn : "Unknown",
+                        ProductSku = t.Product != null ? t.Product.Sku : "",
+                        t.ChangeQty,
+                        TransactionType = t.TransactionType.ToString(),
+                        t.Reason,
+                        t.RefId,
+                        t.CreatedAt
+                    })
+                    .ToListAsync();
+
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Data = new
+                    {
+                        items,
+                        totalCount,
+                        page,
+                        pageSize,
+                        totalPages = (int)Math.Ceiling((double)totalCount / pageSize)
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Failed to load stock movements",
                     Errors = new List<string> { ex.Message }
                 });
             }

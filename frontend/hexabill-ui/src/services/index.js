@@ -122,6 +122,11 @@ export const productsAPI = {
     return response.data
   },
 
+  getStockMovements: async (params = {}) => {
+    const response = await api.get('/products/stock-movements', { params })
+    return response.data
+  },
+
   bulkUpdatePrices: async (request) => {
     const response = await api.post('/products/bulk-update-prices', request)
     return response.data

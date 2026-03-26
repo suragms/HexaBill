@@ -87,6 +87,7 @@ const SettingsPage = () => {
     cloudBackupRefreshToken: '',
     cloudBackupFolderId: '',
     lowStockGlobalThreshold: '', // #55: optional global fallback when product ReorderLevel is 0
+    allowNegativeStock: false,
     returnPolicyHeader: '',
     returnPolicyBody: '',
     returnPolicyFooter: '',
@@ -406,6 +407,7 @@ const SettingsPage = () => {
           cloudBackupRefreshToken: response.data.CLOUD_BACKUP_REFRESH_TOKEN || response.data.cloudBackupRefreshToken || '',
           cloudBackupFolderId: response.data.CLOUD_BACKUP_FOLDER_ID || response.data.cloudBackupFolderId || '',
           lowStockGlobalThreshold: response.data.LOW_STOCK_GLOBAL_THRESHOLD ?? response.data.lowStockGlobalThreshold ?? '',
+          allowNegativeStock: response.data.ALLOW_NEGATIVE_STOCK === 'true',
           returnPolicyHeader: response.data.RETURN_POLICY_HEADER ?? response.data.returnPolicyHeader ?? '',
           returnPolicyBody: response.data.RETURN_POLICY_BODY ?? response.data.returnPolicyBody ?? '',
           returnPolicyFooter: response.data.RETURN_POLICY_FOOTER ?? response.data.returnPolicyFooter ?? '',
@@ -455,6 +457,7 @@ const SettingsPage = () => {
         CLOUD_BACKUP_REFRESH_TOKEN: data.cloudBackupRefreshToken || '',
         CLOUD_BACKUP_FOLDER_ID: data.cloudBackupFolderId || '',
         LOW_STOCK_GLOBAL_THRESHOLD: (data.lowStockGlobalThreshold !== undefined && data.lowStockGlobalThreshold !== null && String(data.lowStockGlobalThreshold).trim() !== '') ? String(data.lowStockGlobalThreshold).trim() : '',
+        ALLOW_NEGATIVE_STOCK: data.allowNegativeStock ? 'true' : 'false',
         RETURN_POLICY_HEADER: data.returnPolicyHeader ?? '',
         RETURN_POLICY_BODY: data.returnPolicyBody ?? '',
         RETURN_POLICY_FOOTER: data.returnPolicyFooter ?? '',
@@ -1023,6 +1026,17 @@ const SettingsPage = () => {
                 <p className="text-xs text-neutral-500">
                   When set, products with reorder level 0 are treated as low stock when quantity is at or below this value. Leave empty to use only each product&apos;s reorder level.
                 </p>
+                <label className="flex items-center gap-3 mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer">
+                  <input
+                    type="checkbox"
+                    {...register('allowNegativeStock')}
+                    className="rounded border-amber-400 text-amber-600 focus:ring-amber-500 h-4 w-4"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-amber-800">Allow selling when stock is zero or insufficient</span>
+                    <p className="text-xs text-amber-600 mt-0.5">Enable emergency billing — invoices can be created even if product stock is 0 or negative. Stock will go into negative values.</p>
+                  </div>
+                </label>
               </div>
             </div>
 
