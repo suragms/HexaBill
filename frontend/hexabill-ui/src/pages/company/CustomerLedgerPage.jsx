@@ -357,9 +357,11 @@ const CustomerLedgerPage = () => {
     }
   }, [searchParams, customers])
 
-  // Load customer data when selected (debounced to prevent excessive calls)
+  // Load customer data when selected or date range changes (debounced to prevent excessive calls)
   useEffect(() => {
     if (selectedCustomer) {
+      // Reset in-progress guard so date/customer changes always trigger a fresh load
+      ledgerLoadInProgressRef.current = null
       const timeoutId = setTimeout(() => {
         loadCustomerData(selectedCustomer.id)
       }, 300) // 300ms debounce
@@ -455,16 +457,23 @@ const CustomerLedgerPage = () => {
     return () => { cancelled = true }
   }, [selectedCustomer?.id, availableBranches, availableRoutes])
 
-  // Refresh data when window regains focus (e.g., returning from POS edit)
+  // Refresh data when window regains focus or when data is updated (e.g., returning from POS edit, payment made)
   useEffect(() => {
-    const handleFocus = () => {
+    const handleRefresh = () => {
       if (selectedCustomer) {
+        ledgerLoadInProgressRef.current = null
         loadCustomerData(selectedCustomer.id)
-        fetchCustomers() // Also refresh customer list to update balances
+        fetchCustomers()
       }
     }
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
+    window.addEventListener('focus', handleRefresh)
+    window.addEventListener('dataUpdated', handleRefresh)
+    window.addEventListener('paymentCreated', handleRefresh)
+    return () => {
+      window.removeEventListener('focus', handleRefresh)
+      window.removeEventListener('dataUpdated', handleRefresh)
+      window.removeEventListener('paymentCreated', handleRefresh)
+    }
   }, [selectedCustomer])
 
   // Server-side search for customer dropdown (debounced)
@@ -2461,7 +2470,11 @@ const CustomerLedgerPage = () => {
                                 const response = await returnsAPI.deleteSaleReturn(returnId)
                                 if (response?.success !== false) {
                                   toast.success('Return deleted successfully.', { id: 'return-delete', duration: 4000 })
-                                  if (selectedCustomer) await loadCustomerData(selectedCustomer.id)
+                                  window.dispatchEvent(new CustomEvent('dataUpdated'))
+                                  if (selectedCustomer) {
+                                    ledgerLoadInProgressRef.current = null
+                                    await loadCustomerData(selectedCustomer.id)
+                                  }
                                 } else {
                                   toast.error(response?.message || 'Failed to delete return')
                                 }
@@ -2563,10 +2576,10 @@ const CustomerLedgerPage = () => {
                               const response = await salesAPI.deleteSale(invoiceId)
                               if (response.success) {
                                 toast.success('Invoice deleted successfully!', { id: 'invoice-delete', duration: 4000 })
+                                window.dispatchEvent(new CustomEvent('dataUpdated'))
                                 if (selectedCustomer) {
-                                  // Reload customer data to update ledger
+                                  ledgerLoadInProgressRef.current = null
                                   await loadCustomerData(selectedCustomer.id)
-                                  // Refresh customer list
                                   await fetchCustomers()
                                 }
                               } else {

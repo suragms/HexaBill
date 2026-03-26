@@ -1008,16 +1008,14 @@ const ReportsPage = () => {
         return
       }
 
-      // AGGRESSIVE debounce - wait 15 seconds before refreshing
       if (debounceTimer) {
         clearTimeout(debounceTimer)
       }
       debounceTimer = setTimeout(() => {
-        // Only refresh if not already fetching and not changing tabs
         if (!isFetchingRef.current && !isTabChangingRef.current && fetchReportDataRef.current) {
-          fetchReportDataRef.current(true) // Force refresh on data updates
+          fetchReportDataRef.current(true)
         }
-      }, 15000) // 15 second debounce (AGGRESSIVE)
+      }, 2000)
     }
 
     window.addEventListener('dataUpdated', handleDataUpdate)

@@ -100,10 +100,10 @@ const BillingHistoryPage = () => {
   const fetchSalesRef = useRef(fetchSales)
   fetchSalesRef.current = fetchSales
 
-  // Pagination only — filters use Apply / search submit (not every keystroke)
+  // Refetch when pagination or date filters change
   useEffect(() => {
     fetchSalesRef.current()
-  }, [currentPage, pageSize])
+  }, [currentPage, pageSize, dateFilter.from, dateFilter.to])
 
   // After POS/payment updates: refresh with current page + filters (ref avoids stale closure from [])
   useEffect(() => {
@@ -152,6 +152,7 @@ const BillingHistoryPage = () => {
         toast.success('Invoice deleted successfully!', { id: 'invoice-delete', duration: 4000 })
         setSales(prev => prev.filter(s => s.id !== saleId))
         setTotalCount(prev => Math.max(0, prev - 1))
+        window.dispatchEvent(new CustomEvent('dataUpdated'))
       } else {
         toast.error(response.message || 'Failed to delete invoice', { id: 'invoice-delete' })
       }

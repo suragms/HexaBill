@@ -185,18 +185,7 @@ const PaymentsPage = () => {
     filterPayments()
   }, [payments, debouncedSearchTerm, filterMethod, filterStatus])
 
-  // Listen for data update events to refresh when payments are made
-  useEffect(() => {
-    const handleDataUpdate = () => {
-      fetchData()
-    }
-    
-    window.addEventListener('dataUpdated', handleDataUpdate)
-    
-    return () => {
-      window.removeEventListener('dataUpdated', handleDataUpdate)
-    }
-  }, [])
+  const fetchDataRef = useRef(null)
 
   const fetchData = async () => {
     try {
@@ -236,6 +225,21 @@ const PaymentsPage = () => {
       setLoading(false)
     }
   }
+
+  fetchDataRef.current = fetchData
+
+  // Listen for data update events to refresh when payments are made (uses ref to avoid stale closure)
+  useEffect(() => {
+    const handleDataUpdate = () => {
+      if (fetchDataRef.current) fetchDataRef.current()
+    }
+    window.addEventListener('dataUpdated', handleDataUpdate)
+    window.addEventListener('paymentCreated', handleDataUpdate)
+    return () => {
+      window.removeEventListener('dataUpdated', handleDataUpdate)
+      window.removeEventListener('paymentCreated', handleDataUpdate)
+    }
+  }, [])
 
   const filterPayments = () => {
     let filtered = payments

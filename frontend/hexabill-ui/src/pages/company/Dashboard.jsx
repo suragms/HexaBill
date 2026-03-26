@@ -323,38 +323,36 @@ const Dashboard = () => {
   // Throttle dashboard refreshes to prevent too many requests
   const lastFetchTimeRef = useRef(0)
   const isFetchingRef = useRef(false)
-  const DASHBOARD_THROTTLE_MS = 60000 // 60 seconds minimum between auto-refreshes (increased from 30s to reduce API requests)
+  const DASHBOARD_THROTTLE_MS = 60000
+  const fetchDashboardDataRef = useRef(fetchDashboardData)
+  fetchDashboardDataRef.current = fetchDashboardData
 
   useEffect(() => {
     fetchDashboardData()
   }, [pendingFilter, pendingSearch, summaryPeriod])
 
-  // Auto-refresh dashboard every 120 seconds (with throttling) - increased from 60s to reduce API requests
+  // Auto-refresh dashboard every 120 seconds (uses ref to avoid stale closure)
   useEffect(() => {
     const autoRefreshInterval = setInterval(() => {
       const now = Date.now()
       const timeSinceLastFetch = now - lastFetchTimeRef.current
-      
-      // Only refresh if enough time has passed and not currently fetching
       if (timeSinceLastFetch >= DASHBOARD_THROTTLE_MS && !isFetchingRef.current) {
         lastFetchTimeRef.current = now
-        fetchDashboardData()
+        fetchDashboardDataRef.current()
       }
-    }, 120000) // Check every 120 seconds (2 minutes) - increased from 60s to reduce API requests
+    }, 120000)
 
     return () => clearInterval(autoRefreshInterval)
   }, [])
 
-  // Listen for data update events to refresh when payments are made (with throttling)
+  // Listen for data update events (uses ref to always call latest fetchDashboardData)
   useEffect(() => {
     const handleDataUpdate = () => {
       const now = Date.now()
       const timeSinceLastFetch = now - lastFetchTimeRef.current
-      
-      // Throttle: only refresh if 10 seconds have passed since last fetch
       if (timeSinceLastFetch >= 10000 && !isFetchingRef.current) {
         lastFetchTimeRef.current = now
-        fetchDashboardData()
+        fetchDashboardDataRef.current()
       }
     }
 
@@ -373,7 +371,7 @@ const Dashboard = () => {
   useEffect(() => {
     const handleConnectionRestored = () => {
       toast.success('Connection restored. Refreshing data...')
-      fetchDashboardData()
+      fetchDashboardDataRef.current()
     }
     window.addEventListener('connectionRestored', handleConnectionRestored)
     return () => window.removeEventListener('connectionRestored', handleConnectionRestored)
