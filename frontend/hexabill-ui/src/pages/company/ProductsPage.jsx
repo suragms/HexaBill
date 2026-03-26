@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus, Edit, Trash2, Package, AlertTriangle, Search, Filter, RefreshCw, Download, Upload, MoreVertical, RotateCw, Tag, Image as ImageIcon, X, History, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
 import { productsAPI, stockAdjustmentsAPI, productCategoriesAPI } from '../../services'
 import ProductForm from '../../components/ProductForm'
@@ -12,13 +13,14 @@ import toast from 'react-hot-toast'
 
 const ProductsPage = () => {
   const { user } = useAuth()
-  const canManageInventory = isAdminOrOwner(user) // Staff: no Import / Reset stock / Edit / Delete
-  const canAdjustStock = !!user // All authenticated users can adjust stock (Staff included)
+  const canManageInventory = isAdminOrOwner(user)
+  const canAdjustStock = !!user
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '')
+  const [currentPage, setCurrentPage] = useState(() => Number(searchParams.get('page')) || 1)
   const [pageSize, setPageSize] = useState(10)
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
@@ -26,8 +28,11 @@ const ProductsPage = () => {
   const [editingProduct, setEditingProduct] = useState(null)
   const [showStockModal, setShowStockModal] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
-  const [activeTab, setActiveTab] = useState('all') // 'all', 'lowStock', 'inactive'
-  const [activeFilters, setActiveFilters] = useState({})
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'all')
+  const [activeFilters, setActiveFilters] = useState(() => {
+    const cat = searchParams.get('category')
+    return cat ? { categoryId: cat } : {}
+  })
   const [categories, setCategories] = useState([])
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [productToDelete, setProductToDelete] = useState(null)
@@ -58,6 +63,16 @@ const ProductsPage = () => {
   const [movementsFilter, setMovementsFilter] = useState({ fromDate: '', toDate: '', transactionType: '' })
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
+
+  // Sync filter state to URL so filters survive navigation and browser back
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (searchTerm) params.set('search', searchTerm)
+    if (activeTab && activeTab !== 'all') params.set('tab', activeTab)
+    if (currentPage > 1) params.set('page', String(currentPage))
+    if (activeFilters.categoryId) params.set('category', activeFilters.categoryId)
+    setSearchParams(params, { replace: true })
+  }, [searchTerm, activeTab, currentPage, activeFilters.categoryId])
 
   const loadProducts = useCallback(async () => {
     try {

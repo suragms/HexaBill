@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
   Search,
@@ -39,13 +39,14 @@ const CustomersPage = () => {
   const { user } = useAuth()
   const { branches, routes } = useBranchesRoutes()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [customers, setCustomers] = useState([])
   const [filteredCustomers, setFilteredCustomers] = useState([])
-  const [searchTerm, setSearchTerm] = useState('')
-  const [activeTab, setActiveTab] = useState('all')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '')
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'all')
+  const [currentPage, setCurrentPage] = useState(() => Number(searchParams.get('page')) || 1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const [hasMore, setHasMore] = useState(false)
@@ -106,6 +107,17 @@ const CustomersPage = () => {
       setSearchParams({})
     }
   }, [customers, searchParams, loading, setSearchParams])
+
+  // Sync filter state to URL so filters survive navigation and browser back
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (searchTerm) params.set('search', searchTerm)
+    if (activeTab && activeTab !== 'all') params.set('tab', activeTab)
+    if (currentPage > 1) params.set('page', String(currentPage))
+    const editParam = searchParams.get('edit')
+    if (editParam) params.set('edit', editParam)
+    setSearchParams(params, { replace: true })
+  }, [searchTerm, activeTab, currentPage])
 
   useEffect(() => {
     filterCustomers()
@@ -705,7 +717,7 @@ const CustomersPage = () => {
                     <td className="px-4 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
                       <div>
                         <button
-                          onClick={() => navigate(`/customers/${customer.id}`)}
+                          onClick={() => navigate(`/customers/${customer.id}`, { state: { returnTo: location.pathname + location.search } })}
                           className="text-xs sm:text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
                         >
                           {customer.name}
@@ -785,7 +797,7 @@ const CustomersPage = () => {
               <div className="flex justify-between items-start mb-2">
                 <div className="flex-1">
                   <button
-                    onClick={() => navigate(`/customers/${customer.id}`)}
+                    onClick={() => navigate(`/customers/${customer.id}`, { state: { returnTo: location.pathname + location.search } })}
                     className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
                   >
                     {customer.name}
@@ -1322,7 +1334,7 @@ const CustomersPage = () => {
             <button
               onClick={() => {
                 // Use React Router navigation instead of full page reload
-                navigate(`/ledger?customerId=${selectedCustomer?.id}`)
+                navigate(`/ledger?customerId=${selectedCustomer?.id}`, { state: { returnTo: location.pathname + location.search } })
                 setShowLedgerModal(false)
               }}
               className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"

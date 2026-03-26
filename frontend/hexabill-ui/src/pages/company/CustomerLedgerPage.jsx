@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Search,
   Download,
@@ -54,6 +54,7 @@ const CustomerLedgerPage = () => {
   const { companyName } = useBranding()
   const { branches, routes, staffHasNoAssignments, loading: branchesRoutesLoading } = useBranchesRoutes()
   const navigate = useNavigate()
+  const location = useLocation()
   const [loading, setLoading] = useState(true)
   const [paymentLoading, setPaymentLoading] = useState(false) // Separate loading state for payment submission
   const [customerLoading, setCustomerLoading] = useState(false) // Separate loading state for customer creation
@@ -111,9 +112,12 @@ const CustomerLedgerPage = () => {
   const [receiptPreviewPaymentIds, setReceiptPreviewPaymentIds] = useState([])
   const [payAllOutstandingMode, setPayAllOutstandingMode] = useState(false)
   const [dateRange, setDateRange] = useState(() => {
+    const fromParam = searchParams.get('from')
+    const toParam = searchParams.get('to')
+    if (fromParam && toParam) return { from: fromParam, to: toParam }
     const now = new Date()
     const yearsAgo = new Date(now)
-    yearsAgo.setFullYear(now.getFullYear() - 5) // 5 years back so migrated ZAYOGA and legacy data visible
+    yearsAgo.setFullYear(now.getFullYear() - 5)
     return {
       from: yearsAgo.toISOString().split('T')[0],
       to: now.toISOString().split('T')[0]
@@ -173,6 +177,15 @@ const CustomerLedgerPage = () => {
   const selectedSaleId = watchPayment('saleId')
   const selectedCustomerId = watchPayment('customerId')
   const [searchParams, setSearchParams] = useSearchParams()
+
+  // Sync key filters to URL so they survive navigation and browser back
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (selectedCustomer?.id) params.set('customerId', String(selectedCustomer.id))
+    if (dateRange.from) params.set('from', dateRange.from)
+    if (dateRange.to) params.set('to', dateRange.to)
+    setSearchParams(params, { replace: true })
+  }, [selectedCustomer?.id, dateRange.from, dateRange.to])
 
   // ========== ALL HANDLER FUNCTIONS - DEFINED FIRST ==========
   // Excel Export Handler
@@ -2546,8 +2559,7 @@ const CustomerLedgerPage = () => {
                         }
                       }}
                       onEditInvoice={(invoiceId) => {
-                        // Navigate to POS with edit mode using React Router
-                        navigate(`/pos?editId=${invoiceId}`)
+                        navigate(`/pos?editId=${invoiceId}`, { state: { returnTo: location.pathname + location.search } })
                       }}
                       onPayInvoice={(invoiceId) => {
                         setPaymentModalInvoiceId(invoiceId)
@@ -2609,7 +2621,7 @@ const CustomerLedgerPage = () => {
                           }
                         })
                       }}
-                      onReturnInvoice={(invoiceId) => navigate(`/returns/create?saleId=${invoiceId}`)}
+                      onReturnInvoice={(invoiceId) => navigate(`/returns/create?saleId=${invoiceId}`, { state: { returnTo: location.pathname + location.search } })}
                     />
                   )}
 

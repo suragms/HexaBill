@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { 
   Search, 
   Eye, 
@@ -31,17 +31,19 @@ import ConfirmDangerModal from '../../components/ConfirmDangerModal'
 const BillingHistoryPage = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [sales, setSales] = useState([])
-  const [searchTerm, setSearchTerm] = useState('')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '')
+  const [currentPage, setCurrentPage] = useState(() => Number(searchParams.get('page')) || 1)
   const [pageSize, setPageSize] = useState(20)
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
-  const [dateFilter, setDateFilter] = useState({
-    from: '',
-    to: ''
-  })
+  const [dateFilter, setDateFilter] = useState(() => ({
+    from: searchParams.get('from') || '',
+    to: searchParams.get('to') || ''
+  }))
   const [selectedSale, setSelectedSale] = useState(null)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   const [selectedInvoices, setSelectedInvoices] = useState([])
@@ -162,8 +164,18 @@ const BillingHistoryPage = () => {
     }
   }
 
+  // Sync filter state to URL so filters survive navigation and browser back
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (searchTerm) params.set('search', searchTerm)
+    if (dateFilter.from) params.set('from', dateFilter.from)
+    if (dateFilter.to) params.set('to', dateFilter.to)
+    if (currentPage > 1) params.set('page', String(currentPage))
+    setSearchParams(params, { replace: true })
+  }, [searchTerm, dateFilter.from, dateFilter.to, currentPage])
+
   const handleEditSale = (sale) => {
-    navigate(`/pos?editId=${sale.id}`)
+    navigate(`/pos?editId=${sale.id}`, { state: { returnTo: location.pathname + location.search } })
   }
 
   const toggleSelectInvoice = (saleId) => {

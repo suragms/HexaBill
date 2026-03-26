@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   Download,
   Filter,
@@ -169,10 +169,11 @@ function sortFlatSalesLedger(entries, order) {
 
 const SalesLedgerPage = () => {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const { branches, routes } = useBranchesRoutes()
   const [loading, setLoading] = useState(true)
-  // Default to current month (first day of month to today)
   const getDefaultDateRange = () => {
     const today = new Date()
     const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
@@ -181,7 +182,12 @@ const SalesLedgerPage = () => {
       to: today.toISOString().split('T')[0]
     }
   }
-  const [dateRange, setDateRange] = useState(getDefaultDateRange())
+  const [dateRange, setDateRange] = useState(() => {
+    const fromParam = searchParams.get('from')
+    const toParam = searchParams.get('to')
+    if (fromParam && toParam) return { from: fromParam, to: toParam }
+    return getDefaultDateRange()
+  })
   const [filters, setFilters] = useState({
     date: '',
     name: '',
@@ -223,6 +229,14 @@ const SalesLedgerPage = () => {
   })
   const [sharingSaleId, setSharingSaleId] = useState(null)
   const fetchSalesLedgerRef = useRef(null)
+
+  // Sync dateRange to URL so filters survive navigation and browser back
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (dateRange.from) params.set('from', dateRange.from)
+    if (dateRange.to) params.set('to', dateRange.to)
+    setSearchParams(params, { replace: true })
+  }, [dateRange.from, dateRange.to])
 
   // Load staff users only (branches/routes from shared context)
   useEffect(() => {
@@ -1314,7 +1328,7 @@ const SalesLedgerPage = () => {
                             <div className="inline-flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
-                                onClick={() => navigate(`/pos?editId=${entry.saleId}`)}
+                                onClick={() => navigate(`/pos?editId=${entry.saleId}`, { state: { returnTo: location.pathname + location.search } })}
                                 className="inline-flex items-center justify-center p-1.5 rounded-md text-primary-600 hover:bg-primary-50 hover:text-primary-800"
                                 title="Edit invoice in POS"
                               >
@@ -1540,7 +1554,7 @@ const SalesLedgerPage = () => {
                         <div className="flex shrink-0 items-center gap-0.5">
                           <button
                             type="button"
-                            onClick={() => navigate(`/pos?editId=${entry.saleId}`)}
+                            onClick={() => navigate(`/pos?editId=${entry.saleId}`, { state: { returnTo: location.pathname + location.search } })}
                             className="p-2 rounded-md text-primary-600 hover:bg-primary-50"
                             title="Edit invoice"
                           >

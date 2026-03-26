@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 import {
   Search,
   Plus,
@@ -45,12 +46,24 @@ function normalizeApiPaymentMethodToUi(method) {
   return map[u] || (String(method).charAt(0).toUpperCase() + String(method).slice(1).toLowerCase())
 }
 
+function getReturnLabel(path) {
+  if (!path) return ''
+  if (path.startsWith('/billing-history')) return 'Billing History'
+  if (path.startsWith('/sales-ledger')) return 'Sales Ledger'
+  if (path.startsWith('/ledger')) return 'Customer Ledger'
+  if (path.startsWith('/reports')) return 'Reports'
+  if (path.startsWith('/customers')) return 'Customers'
+  return 'Previous Page'
+}
+
 const PosPage = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const { companyName } = useBranding()
   const { branches, routes, staffHasNoAssignments, loading: branchesRoutesLoading, refresh: refreshBranchesRoutes } = useBranchesRoutes()
   const [searchParams, setSearchParams] = useSearchParams()
+  const returnTo = location.state?.returnTo
   const [products, setProducts] = useState([])
   const [customers, setCustomers] = useState([])
   const [cart, setCart] = useState([])
@@ -1372,16 +1385,15 @@ const PosPage = () => {
             })
             setShowInvoiceOptionsModal(true)
 
-            // If we came from customer ledger, offer to go back
-            const cameFromLedger = document.referrer.includes('/ledger')
-            if (cameFromLedger) {
+            // If we came from another page, offer to go back (with filters preserved in URL)
+            if (returnTo) {
               setTimeout(() => {
                 setDangerModal({
                   isOpen: true,
                   title: 'Update Successful',
-                  message: 'Invoice updated successfully! Would you like to return to Customer Ledger?',
-                  confirmLabel: 'Go to Ledger',
-                  onConfirm: () => navigate('/ledger')
+                  message: `Invoice updated successfully! Return to ${getReturnLabel(returnTo)}?`,
+                  confirmLabel: `Go to ${getReturnLabel(returnTo)}`,
+                  onConfirm: () => navigate(returnTo)
                 })
               }, 1000)
             }
@@ -1819,6 +1831,20 @@ const PosPage = () => {
 
 
       {/* Edit Mode Indicator */}
+      {/* Return-to-origin back button */}
+      {returnTo && (
+        <div className="bg-slate-700 text-white px-3 sm:px-6 py-1.5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate(returnTo)}
+            className="flex items-center gap-1.5 text-sm font-medium text-blue-200 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to {getReturnLabel(returnTo)}
+          </button>
+        </div>
+      )}
+
       {isEditMode && (
         <div className="bg-yellow-500 text-white px-3 sm:px-6 py-2 flex items-center justify-center gap-2 shadow-md">
           <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />

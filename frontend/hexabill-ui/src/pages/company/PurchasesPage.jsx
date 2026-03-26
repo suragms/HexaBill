@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { Plus, Edit, Trash2, Eye, Save, Search, X, Filter, Calendar, TrendingUp, TrendingDown, BarChart3, DollarSign, Download, ExternalLink, Users } from 'lucide-react'
 import { purchasesAPI, productsAPI, settingsAPI, suppliersAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
@@ -7,20 +7,22 @@ import toast from 'react-hot-toast'
 import ConfirmDangerModal from '../../components/ConfirmDangerModal'
 
 const PurchasesPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const [purchases, setPurchases] = useState([])
   const [loading, setLoading] = useState(true)
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState(() => Number(searchParams.get('page')) || 1)
   const [totalPages, setTotalPages] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editingPurchase, setEditingPurchase] = useState(null)
 
-  // Filter states - CRITICAL FIX: Default to 'all' to show all purchases without filtering
-  const [filterPeriod, setFilterPeriod] = useState('all') // Show all purchases by default
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [supplierSearch, setSupplierSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all') // all, paid, partial, unpaid, overdue
+  // Filter states - initialized from URL params so filters survive navigation
+  const [filterPeriod, setFilterPeriod] = useState(() => searchParams.get('period') || 'all')
+  const [startDate, setStartDate] = useState(() => searchParams.get('startDate') || '')
+  const [endDate, setEndDate] = useState(() => searchParams.get('endDate') || '')
+  const [supplierSearch, setSupplierSearch] = useState(() => searchParams.get('supplier') || '')
+  const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || '')
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all')
   const [showFilters, setShowFilters] = useState(false)
   const [exportingCsv, setExportingCsv] = useState(false)
   const [bulkFixingItc, setBulkFixingItc] = useState(false)
@@ -65,12 +67,24 @@ const PurchasesPage = () => {
     return new Date(dateString).toLocaleDateString('en-GB')
   }
 
+  // Sync filter state to URL so filters survive navigation and browser back
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
+    if (filterPeriod && filterPeriod !== 'all') params.set('period', filterPeriod)
+    if (startDate) params.set('startDate', startDate)
+    if (endDate) params.set('endDate', endDate)
+    if (supplierSearch) params.set('supplier', supplierSearch)
+    if (categoryFilter) params.set('category', categoryFilter)
+    if (currentPage > 1) params.set('page', String(currentPage))
+    setSearchParams(params, { replace: true })
+  }, [statusFilter, filterPeriod, startDate, endDate, supplierSearch, categoryFilter, currentPage])
+
   useEffect(() => {
     loadPurchases()
     loadProducts()
     loadAnalytics()
     loadPendingSummary()
-    // CRITICAL FIX: Reload when filters change to show filtered data automatically
   }, [currentPage, filterPeriod, startDate, endDate, supplierSearch, categoryFilter, statusFilter])
 
   useEffect(() => {
@@ -1700,7 +1714,7 @@ const PurchasesPage = () => {
                             <div className="flex flex-wrap justify-center gap-1">
                               {(['Unpaid', 'Partial'].includes(purchase.paymentStatus || '') && (
                                 <button
-                                  onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1&amount=${purchase.balanceAmount ?? purchase.totalAmount}&ref=${encodeURIComponent(purchase.invoiceNo || '')}`)}
+                                  onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1&amount=${purchase.balanceAmount ?? purchase.totalAmount}&ref=${encodeURIComponent(purchase.invoiceNo || '')}`, { state: { returnTo: location.pathname + location.search } })}
                                   className="bg-green-50 text-green-600 hover:bg-green-600 hover:text-white border border-green-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
                                   title={`Pay AED ${(purchase.balanceAmount ?? purchase.totalAmount ?? 0).toFixed(2)}`}
                                 >
@@ -1708,7 +1722,7 @@ const PurchasesPage = () => {
                                 </button>
                               ))}
                               <button
-                                onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}`)}
+                                onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}`, { state: { returnTo: location.pathname + location.search } })}
                                 className="bg-primary-50 text-primary-600 hover:bg-primary-600 hover:text-white border border-primary-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
                                 title="Supplier Ledger (full page)"
                               >
@@ -1842,7 +1856,7 @@ const PurchasesPage = () => {
                       <div className="flex flex-wrap items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
                         {['Unpaid', 'Partial'].includes(purchase.paymentStatus || '') && (
                           <button
-                            onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1&amount=${purchase.balanceAmount ?? purchase.totalAmount}&ref=${encodeURIComponent(purchase.invoiceNo || '')}`)}
+                            onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}?recordPayment=1&amount=${purchase.balanceAmount ?? purchase.totalAmount}&ref=${encodeURIComponent(purchase.invoiceNo || '')}`, { state: { returnTo: location.pathname + location.search } })}
                             className="bg-green-50 text-green-600 hover:bg-green-600 hover:text-white border border-green-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
                             title={`Pay AED ${(purchase.balanceAmount ?? purchase.totalAmount ?? 0).toFixed(2)}`}
                           >
@@ -1850,7 +1864,7 @@ const PurchasesPage = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}`)}
+                          onClick={() => navigate(`/suppliers/${encodeURIComponent(purchase.supplierName || '')}`, { state: { returnTo: location.pathname + location.search } })}
                           className="bg-primary-50 text-primary-600 hover:bg-primary-600 hover:text-white border border-primary-300 px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
                           title="Supplier Ledger"
                         >

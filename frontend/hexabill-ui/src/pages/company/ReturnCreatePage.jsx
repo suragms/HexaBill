@@ -3,7 +3,7 @@
  * Route: /returns/create?saleId=...
  */
 import { useState, useEffect } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Save, FileText } from 'lucide-react'
 import { salesAPI, returnsAPI } from '../../services'
 import { formatCurrency } from '../../utils/currency'
@@ -18,7 +18,9 @@ const CONDITION_OPTIONS = [
 export default function ReturnCreatePage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const saleId = searchParams.get('saleId')
+  const returnTo = location.state?.returnTo
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -168,7 +170,7 @@ export default function ReturnCreatePage() {
           toast.success('Return saved. Open Reports → Returns to print credit note.')
         }
       }
-      navigate('/reports?tab=returns')
+      navigate(returnTo || '/reports?tab=returns')
     } catch (e) {
       const msg = e?.response?.data?.message ?? e?.message ?? 'Failed to save return'
       toast.error(msg)
@@ -193,11 +195,11 @@ export default function ReturnCreatePage() {
       <div className="mb-6 flex items-center justify-between">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => returnTo ? navigate(returnTo) : navigate(-1)}
           className="flex items-center gap-2 text-neutral-600 hover:text-neutral-900"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back
+          {returnTo?.startsWith('/ledger') ? 'Back to Customer Ledger' : 'Back'}
         </button>
         <h1 className="text-xl font-semibold text-neutral-900">Create Sales Return</h1>
       </div>
