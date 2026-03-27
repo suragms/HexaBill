@@ -216,6 +216,8 @@ const ExpensesPage = () => {
   const navigate = useNavigate()
   const { branches, routes } = useBranchesRoutes()
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const initialExpensesLoadDoneRef = useRef(false)
   const [expenses, setExpenses] = useState([])
   const [filteredExpenses, setFilteredExpenses] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
