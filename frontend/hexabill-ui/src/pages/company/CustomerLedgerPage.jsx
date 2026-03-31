@@ -1659,7 +1659,9 @@ const CustomerLedgerPage = () => {
       toast.success('Statement PDF ready', { id: 'ledger-pdf', duration: 3000 })
     } catch (error) {
       console.error('Failed to export PDF:', error)
-      if (!error?._handledByInterceptor) toast.error('Failed to export PDF')
+      if (!error?._handledByInterceptor) {
+        toast.error(error?.message || 'Failed to export PDF')
+      }
     } finally {
       setPdfLoading(false)
     }
@@ -1771,17 +1773,27 @@ const CustomerLedgerPage = () => {
       <!DOCTYPE html>
       <html>
         <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>Customer Ledger Statement - ${selectedCustomer.name}</title>
           <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { color: #1e40af; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            :root { --fs: 11px; }
+            html { font-size: var(--fs); }
+            body { font-family: Arial, sans-serif; margin: 12px; line-height: 1.35; }
+            h1 { color: #1e40af; font-size: 1.35rem; margin: 0 0 0.35rem 0; }
+            h2 { font-size: 1.1rem; margin: 0.25rem 0 0.5rem 0; }
+            p { margin: 0.2rem 0; font-size: 1em; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.95em; }
+            th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; }
             th { background-color: #f3f4f6; font-weight: bold; }
             .debit-row { background-color: #fee2e2; }
             .credit-row { background-color: #dcfce7; }
-            .summary { margin-top: 20px; padding: 15px; background-color: #f9fafb; border-radius: 5px; }
-            @media print { body { margin: 0; } }
+            .summary { margin-top: 12px; padding: 10px; background-color: #f9fafb; border-radius: 5px; font-size: 1em; }
+            table { page-break-inside: auto; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            @media print {
+              @page { size: A5 portrait; margin: 8mm; }
+              body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            }
           </style>
         </head>
         <body>
@@ -2238,7 +2250,9 @@ const CustomerLedgerPage = () => {
                           toast.success('Pending Bills PDF ready', { id: 'invoice-pdf-download', duration: 3000 })
                         } catch (error) {
                           console.error('Failed to export pending bills PDF:', error)
-                          if (!error?._handledByInterceptor) toast.error(error.response?.data?.message || 'Failed to export PDF')
+                          if (!error?._handledByInterceptor) {
+                            toast.error(error?.message || 'Failed to export PDF')
+                          }
                         } finally {
                           toast.dismiss(loadingToast)
                           setPdfLoading(false)

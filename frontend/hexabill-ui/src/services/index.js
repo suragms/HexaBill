@@ -207,6 +207,8 @@ export const salesAPI = {
       if (options.width) params.width = options.width
       const response = await api.get(`/sales/${id}/pdf`, {
         responseType: 'blob',
+        timeout: 120000,
+        _bypassCache: true,
         ...(Object.keys(params).length > 0 && { params })
       })
 
@@ -215,15 +217,14 @@ export const salesAPI = {
 
       // If response status is error or content-type is JSON, it's an error
       if (response.status >= 400 || contentType.includes('application/json')) {
-        // Response is an error - try to parse JSON from blob
         const text = await response.data.text()
+        let errorData
         try {
-          const errorData = JSON.parse(text)
-          const errorMessage = errorData?.message || errorData?.errors?.join(', ') || 'Failed to generate PDF'
-          throw new Error(errorMessage)
-        } catch (parseError) {
+          errorData = JSON.parse(text)
+        } catch {
           throw new Error(`Server error: ${response.status}`)
         }
+        throw new Error(errorData?.message || errorData?.errors?.join(', ') || 'Failed to generate PDF')
       }
 
       // Validate it's actually a PDF blob
@@ -503,23 +504,32 @@ export const customersAPI = {
   },
 
   getCustomerStatement: async (id, fromDate, toDate) => {
+    const blobOpts = {
+      params: {},
+      responseType: 'blob',
+      timeout: 120000,
+      _bypassCache: true
+    }
+    if (fromDate) {
+      blobOpts.params.fromDate =
+        typeof fromDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromDate) ? fromDate : toYYYYMMDD(fromDate)
+    }
+    if (toDate) {
+      blobOpts.params.toDate =
+        typeof toDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(toDate) ? toDate : toYYYYMMDD(toDate)
+    }
     try {
-      const params = {}
-      if (fromDate) params.fromDate = typeof fromDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromDate) ? fromDate : toYYYYMMDD(fromDate)
-      if (toDate) params.toDate = typeof toDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(toDate) ? toDate : toYYYYMMDD(toDate)
-      const response = await api.get(`/customers/${id}/statement`, {
-        params,
-        responseType: 'blob'
-      })
+      const response = await api.get(`/customers/${id}/statement`, blobOpts)
       const contentType = response.headers['content-type'] || ''
       if (response.status >= 400 || contentType.includes('application/json')) {
         const text = await response.data.text()
+        let errorData
         try {
-          const errorData = JSON.parse(text)
-          throw new Error(errorData?.message || errorData?.errors?.join(', ') || 'Failed to generate statement PDF')
-        } catch (parseError) {
+          errorData = JSON.parse(text)
+        } catch {
           throw new Error(`Server error: ${response.status}`)
         }
+        throw new Error(errorData?.message || errorData?.errors?.join(', ') || 'Failed to generate statement PDF')
       }
       return response.data
     } catch (error) {
@@ -528,36 +538,57 @@ export const customersAPI = {
           const text = await error.response.data.text()
           if (text.trim().startsWith('{')) {
             const errorData = JSON.parse(text)
-            throw new Error(errorData.message || errorData.errors?.join(', ') || 'Failed to generate statement PDF')
+            const err = new Error(
+              errorData.message || errorData.errors?.join(', ') || 'Failed to generate statement PDF'
+            )
+            if (error._handledByInterceptor) err._handledByInterceptor = true
+            throw err
           }
-          throw new Error(`Server error: ${error.response?.status || 500}`)
+          const err = new Error(`Server error: ${error.response?.status || 500}`)
+          if (error._handledByInterceptor) err._handledByInterceptor = true
+          throw err
         } catch (parseError) {
-          if (parseError.message) throw parseError
-          throw new Error(`Server error: ${error.response?.status || 500}`)
+          if (parseError instanceof Error && parseError.message) {
+            if (error._handledByInterceptor) parseError._handledByInterceptor = true
+            throw parseError
+          }
+          const err = new Error(`Server error: ${error.response?.status || 500}`)
+          if (error._handledByInterceptor) err._handledByInterceptor = true
+          throw err
         }
       }
-      throw new Error(error.message || 'Failed to generate statement PDF')
+      const err = new Error(error.message || 'Failed to generate statement PDF')
+      if (error._handledByInterceptor) err._handledByInterceptor = true
+      throw err
     }
   },
 
   getCustomerPendingBillsPdf: async (id, fromDate, toDate) => {
+    const params = {}
+    if (fromDate) {
+      params.fromDate =
+        typeof fromDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromDate) ? fromDate : toYYYYMMDD(fromDate)
+    }
+    if (toDate) {
+      params.toDate = typeof toDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(toDate) ? toDate : toYYYYMMDD(toDate)
+    }
     try {
-      const params = {}
-      if (fromDate) params.fromDate = toYYYYMMDD(fromDate)
-      if (toDate) params.toDate = toYYYYMMDD(toDate)
       const response = await api.get(`/customers/${id}/pending-bills-pdf`, {
         params,
-        responseType: 'blob'
+        responseType: 'blob',
+        timeout: 120000,
+        _bypassCache: true
       })
       const contentType = response.headers['content-type'] || ''
       if (response.status >= 400 || contentType.includes('application/json')) {
         const text = await response.data.text()
+        let errorData
         try {
-          const errorData = JSON.parse(text)
-          throw new Error(errorData?.message || errorData?.errors?.join(', ') || 'Failed to generate pending bills PDF')
-        } catch (parseError) {
+          errorData = JSON.parse(text)
+        } catch {
           throw new Error(`Server error: ${response.status}`)
         }
+        throw new Error(errorData?.message || errorData?.errors?.join(', ') || 'Failed to generate pending bills PDF')
       }
       return response.data
     } catch (error) {
@@ -566,15 +597,28 @@ export const customersAPI = {
           const text = await error.response.data.text()
           if (text.trim().startsWith('{')) {
             const errorData = JSON.parse(text)
-            throw new Error(errorData.message || errorData.errors?.join(', ') || 'Failed to generate pending bills PDF')
+            const err = new Error(
+              errorData.message || errorData.errors?.join(', ') || 'Failed to generate pending bills PDF'
+            )
+            if (error._handledByInterceptor) err._handledByInterceptor = true
+            throw err
           }
-          throw new Error(`Server error: ${error.response?.status || 500}`)
+          const err = new Error(`Server error: ${error.response?.status || 500}`)
+          if (error._handledByInterceptor) err._handledByInterceptor = true
+          throw err
         } catch (parseError) {
-          if (parseError.message) throw parseError
-          throw new Error(`Server error: ${error.response?.status || 500}`)
+          if (parseError instanceof Error && parseError.message) {
+            if (error._handledByInterceptor) parseError._handledByInterceptor = true
+            throw parseError
+          }
+          const err = new Error(`Server error: ${error.response?.status || 500}`)
+          if (error._handledByInterceptor) err._handledByInterceptor = true
+          throw err
         }
       }
-      throw new Error(error.message || 'Failed to generate pending bills PDF')
+      const err = new Error(error.message || 'Failed to generate pending bills PDF')
+      if (error._handledByInterceptor) err._handledByInterceptor = true
+      throw err
     }
   },
 }

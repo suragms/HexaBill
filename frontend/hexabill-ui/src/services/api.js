@@ -290,7 +290,8 @@ api.request = function(configOrUrl, config) {
   // Response cache check - BEFORE calling axios (prevents toUpperCase bug from returning response as config)
   const method = (finalConfig.method && typeof finalConfig.method === 'string')
     ? String(finalConfig.method).toUpperCase() : 'GET'
-  if (method === 'GET' && !finalConfig._bypassCache) {
+  // Never serve PDF/blob from JSON cache — JSON.stringify destroys Blob (breaks repeat exports/prints)
+  if (method === 'GET' && !finalConfig._bypassCache && finalConfig.responseType !== 'blob') {
     const cacheKey = getRequestKey(finalConfig)
     const cached = responseCache.get(cacheKey)
     if (cached) {
@@ -629,8 +630,8 @@ api.interceptors.response.use(
       pendingRequests.delete(response.config._requestKey)
     }
 
-    // Normalize PascalCase to camelCase in response data
-    if (response?.data != null) {
+    // Normalize PascalCase to camelCase in response data (skip Blobs — not JSON)
+    if (response?.data != null && !(response.data instanceof Blob)) {
       try {
         if (typeof response.data === 'object') {
           response.data = transformResponseKeys(response.data)
@@ -640,9 +641,12 @@ api.interceptors.response.use(
 
     // Response caching: Cache successful GET responses
     const respMethod = response.config?.method != null ? String(response.config.method).toUpperCase() : ''
-    if (respMethod === 'GET' && 
-        !response.config?._bypassCache && 
-        response.status >= 200 && 
+    const isBlobBody =
+      response.config?.responseType === 'blob' || (response.data != null && response.data instanceof Blob)
+    if (respMethod === 'GET' &&
+        !response.config?._bypassCache &&
+        !isBlobBody &&
+        response.status >= 200 &&
         response.status < 300) {
       const cacheKey = response.config._requestKey || getRequestKey(response.config)
       const ttl = getCacheTTL(response.config.url || '')
@@ -716,7 +720,25 @@ api.interceptors.response.use(
     if (retryCount >= maxRetries) {
       error._handledByInterceptor = true
       if (!is401Error) {
-        const serverMsg = error.response?.data?.message || error.response?.data?.errors?.[0]
+        let serverMsg = error.response?.data?.message || error.response?.data?.errors?.[0]
+        if (!serverMsg && error.response?.data instanceof Blob) {
+          try {
+            const text = await error.response.data.text()
+            if (text.trim().startsWith('{')) {
+              const j = JSON.parse(text)
+              serverMsg =
+                j.message ||
+                j.Message ||
+                j.detail ||
+                j.Detail ||
+                (Array.isArray(j.errors) && j.errors[0]) ||
+                (Array.isArray(j.Errors) && j.Errors[0])
+            }
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        if (!serverMsg) serverMsg = extractErrorMessageFromResponse(error)
         const msg = serverMsg || 'Request failed after multiple attempts. Please refresh the page.'
         showThrottledError(msg, false)
       }
