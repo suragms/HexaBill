@@ -55,6 +55,7 @@ const CustomerLedgerPage = () => {
   const { branches, routes, staffHasNoAssignments, loading: branchesRoutesLoading } = useBranchesRoutes()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [paymentLoading, setPaymentLoading] = useState(false) // Separate loading state for payment submission
   const [customerLoading, setCustomerLoading] = useState(false) // Separate loading state for customer creation
@@ -176,7 +177,6 @@ const CustomerLedgerPage = () => {
 
   const selectedSaleId = watchPayment('saleId')
   const selectedCustomerId = watchPayment('customerId')
-  const [searchParams, setSearchParams] = useSearchParams()
 
   // Sync key filters to URL so they survive navigation and browser back
   useEffect(() => {
