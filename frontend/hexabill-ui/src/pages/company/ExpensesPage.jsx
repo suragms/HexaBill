@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { clearCache } from '../../services/api'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import {
@@ -463,9 +462,12 @@ const ExpensesPage = () => {
   }, [currentPage, dateRange, showAggregated, groupBy, selectedBranchId])
 
   const handleRefresh = useCallback(async () => {
-    clearCache('/expenses')
-    clearCache('/api/expenses')
-    clearCache('expenses')
+    try {
+      const { clearCache } = await import('../../services/api')
+      clearCache('/expenses')
+      clearCache('/api/expenses')
+      clearCache('expenses')
+    } catch (_) { /* cache clear is best-effort */ }
     await fetchExpenses()
   }, [fetchExpenses])
 
@@ -1367,7 +1369,11 @@ const ExpensesPage = () => {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={(props) => {
+                      const sliceName = String(props?.name ?? '')
+                      const frac = typeof props?.percent === 'number' ? props.percent : Number(props?.percent) || 0
+                      return `${sliceName} ${(frac * 100).toFixed(0)}%`
+                    }}
                     outerRadius={80}
                     fill="#8884d8"
                     dataKey="value"
