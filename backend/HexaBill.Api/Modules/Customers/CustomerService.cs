@@ -246,10 +246,12 @@ namespace HexaBill.Api.Modules.Customers
             try
             {
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"SELECT COALESCE(SUM(""GrandTotal""), 0) FROM ""SaleReturns"" WHERE ""CustomerId"" = @p0 AND ""TenantId"" = @p1 AND ""ReturnDate"" < @p2 AND ""Status"" = 1";
+                // Status is stored as text (EF HasConversion<string>); never compare to integer — PostgreSQL 42883 text = integer
+                cmd.CommandText = @"SELECT COALESCE(SUM(""GrandTotal""), 0) FROM ""SaleReturns"" WHERE ""CustomerId"" = @p0 AND ""TenantId"" = @p1 AND ""ReturnDate"" < @p2 AND ""Status"" = @p3";
                 var p0 = cmd.CreateParameter(); p0.ParameterName = "p0"; p0.Value = customerId; cmd.Parameters.Add(p0);
                 var p1 = cmd.CreateParameter(); p1.ParameterName = "p1"; p1.Value = tenantId; cmd.Parameters.Add(p1);
                 var p2 = cmd.CreateParameter(); p2.ParameterName = "p2"; p2.Value = fromDate; cmd.Parameters.Add(p2);
+                var p3 = cmd.CreateParameter(); p3.ParameterName = "p3"; p3.Value = nameof(ReturnStatus.Approved); cmd.Parameters.Add(p3);
                 var result = await cmd.ExecuteScalarAsync();
                 return result is decimal d ? d : (result is double dbl ? (decimal)dbl : 0m);
             }
@@ -265,11 +267,12 @@ namespace HexaBill.Api.Modules.Customers
             try
             {
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"SELECT ""ReturnDate"", ""ReturnNo"", ""GrandTotal"" FROM ""SaleReturns"" WHERE ""CustomerId"" = @p0 AND ""TenantId"" = @p1 AND ""ReturnDate"" >= @p2 AND ""ReturnDate"" <= @p3 AND ""Status"" = 1 ORDER BY ""ReturnDate"", ""Id""";
+                cmd.CommandText = @"SELECT ""ReturnDate"", ""ReturnNo"", ""GrandTotal"" FROM ""SaleReturns"" WHERE ""CustomerId"" = @p0 AND ""TenantId"" = @p1 AND ""ReturnDate"" >= @p2 AND ""ReturnDate"" <= @p3 AND ""Status"" = @p4 ORDER BY ""ReturnDate"", ""Id""";
                 var p0 = cmd.CreateParameter(); p0.ParameterName = "p0"; p0.Value = customerId; cmd.Parameters.Add(p0);
                 var p1 = cmd.CreateParameter(); p1.ParameterName = "p1"; p1.Value = tenantId; cmd.Parameters.Add(p1);
                 var p2 = cmd.CreateParameter(); p2.ParameterName = "p2"; p2.Value = fromDate; cmd.Parameters.Add(p2);
                 var p3 = cmd.CreateParameter(); p3.ParameterName = "p3"; p3.Value = toEnd; cmd.Parameters.Add(p3);
+                var p4 = cmd.CreateParameter(); p4.ParameterName = "p4"; p4.Value = nameof(ReturnStatus.Approved); cmd.Parameters.Add(p4);
                 var list = new List<(DateTime ReturnDate, string? ReturnNo, decimal GrandTotal)>();
                 using (var reader = await cmd.ExecuteReaderAsync())
                 {
