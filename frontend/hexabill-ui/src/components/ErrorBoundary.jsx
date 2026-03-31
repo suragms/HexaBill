@@ -20,15 +20,8 @@ class ErrorBoundary extends React.Component {
   }
 
   handleReset = () => {
-    // Reset error state instead of full page reload
-    this.setState({ hasError: false, error: null, errorInfo: null })
-    // Optionally navigate to dashboard or refresh data
-    if (window.location.pathname !== '/dashboard') {
-      window.location.href = '/dashboard'
-    } else {
-      // If already on dashboard, trigger a data refresh event
-      window.dispatchEvent(new Event('dataUpdated'))
-    }
+    // Full reload so the browser fetches the latest JS/CSS (fixes stale SPA chunks after deploy).
+    window.location.reload()
   }
 
   render() {
