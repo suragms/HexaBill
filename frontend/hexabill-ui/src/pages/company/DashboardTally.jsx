@@ -339,9 +339,20 @@ const DashboardTally = () => {
         let debounceTimer = null
         const handleDataUpdate = () => {
             if (debounceTimer) clearTimeout(debounceTimer)
-            debounceTimer = setTimeout(() => {
-                if (!isFetchingRef.current) fetchStatsThrottled()
-            }, 5000)
+            debounceTimer = setTimeout(async () => {
+                if (isFetchingRef.current) return
+                try {
+                    const { clearCache } = await import('../../services/api')
+                    clearCache('/reports/summary')
+                } catch (_) { /* ignore */ }
+                lastFetchTimeRef.current = 0
+                isFetchingRef.current = true
+                try {
+                    await fetchStats(true)
+                } finally {
+                    isFetchingRef.current = false
+                }
+            }, 400)
         }
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible' && !isFetchingRef.current) fetchStatsThrottled()

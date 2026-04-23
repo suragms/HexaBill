@@ -38,6 +38,23 @@ const SuppliersPage = () => {
     loadSuppliers()
   }, [])
 
+  const shouldOpenCreateFromUrl = searchParams.get('create') === '1'
+  const prefillNameFromUrl = searchParams.get('prefill') || ''
+  useEffect(() => {
+    if (!shouldOpenCreateFromUrl) return
+    setShowCreateModal(true)
+    const prefill = (prefillNameFromUrl || '').trim()
+    if (prefill) {
+      setCreateForm((prev) => ({ ...prev, name: prefill }))
+    }
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      p.delete('create')
+      p.delete('prefill')
+      return p
+    }, { replace: true })
+  }, [shouldOpenCreateFromUrl, prefillNameFromUrl, setSearchParams])
+
   const editFromUrl = searchParams.get('edit')
   useEffect(() => {
     if (!editFromUrl || loading || suppliers.length === 0) return
@@ -208,6 +225,16 @@ const SuppliersPage = () => {
         setShowCreateModal(false)
         setCreateForm({ name: '', phone: '', email: '', address: '', creditLimit: '', paymentTerms: '' })
         loadSuppliers()
+        let returnPath = null
+        try {
+          returnPath = sessionStorage.getItem('hexabill.afterSupplierCreate')
+        } catch (_) { /* ignore */ }
+        if (returnPath) {
+          try {
+            sessionStorage.removeItem('hexabill.afterSupplierCreate')
+          } catch (_) { /* ignore */ }
+          navigate(returnPath)
+        }
       } else {
         toast.error(res?.message || 'Failed to create supplier')
       }

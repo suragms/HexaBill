@@ -578,7 +578,14 @@ const ExpensesPage = () => {
 
   // Listen for dataUpdated events from other pages to refresh expenses
   useEffect(() => {
-    const handler = () => fetchExpensesRef.current()
+    const handler = async () => {
+      try {
+        const { clearCache } = await import('../../services/api')
+        clearCache('/expenses')
+        clearCache('expenses')
+      } catch (_) { /* ignore */ }
+      fetchExpensesRef.current()
+    }
     window.addEventListener('dataUpdated', handler)
     return () => window.removeEventListener('dataUpdated', handler)
   }, [])

@@ -5,6 +5,7 @@ import { purchasesAPI, productsAPI, settingsAPI, suppliersAPI } from '../../serv
 import { formatCurrency } from '../../utils/currency'
 import toast from 'react-hot-toast'
 import ConfirmDangerModal from '../../components/ConfirmDangerModal'
+import Modal from '../../components/Modal'
 
 const PurchasesPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -59,6 +60,7 @@ const PurchasesPage = () => {
     confirmLabel: 'Confirm',
     onConfirm: () => { }
   })
+  const [supplierRegisterModal, setSupplierRegisterModal] = useState({ open: false, name: '' })
   const navigate = useNavigate()
   const [expandedPurchaseId, setExpandedPurchaseId] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -426,29 +428,28 @@ const PurchasesPage = () => {
       qty: 1,
       unitCost: unitCost
     }
-    setFormData({
-      ...formData,
-      items: [...formData.items, newItem]
-    })
+    setFormData((prev) => ({
+      ...prev,
+      items: [...prev.items, newItem]
+    }))
     setShowProductSearch(false)
     setProductSearchTerm('')
   }
 
   const updateItem = (index, field, value) => {
-    const newItems = [...formData.items]
-
-    // Handle empty string for number fields
-    const numValue = value === '' ? '' : (field === 'qty' || field === 'unitCost' ? Number(value) : value)
-    newItems[index] = { ...newItems[index], [field]: numValue }
-
-    setFormData({ ...formData, items: newItems })
+    setFormData((prev) => {
+      const newItems = [...prev.items]
+      const numValue = value === '' ? '' : (field === 'qty' || field === 'unitCost' ? Number(value) : value)
+      newItems[index] = { ...newItems[index], [field]: numValue }
+      return { ...prev, items: newItems }
+    })
   }
 
   const removeItem = (index) => {
-    setFormData({
-      ...formData,
-      items: formData.items.filter((_, i) => i !== index)
-    })
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index)
+    }))
   }
 
   const calculateTotal = () => {
@@ -477,6 +478,27 @@ const PurchasesPage = () => {
     if (invalidItems.length > 0) {
       toast.error('All items must have valid quantity (> 0) and unit cost (>= 0)')
       return
+    }
+
+    const trimmedSupplier = (formData.supplierName || '').trim()
+    if (!editingPurchase) {
+      try {
+        // Always bypass GET cache: stale /by-name responses (e.g. id 0 legacy stub) block save after supplier is created
+        const res = await suppliersAPI.getSupplier(trimmedSupplier, { bypassCache: true })
+        const d = res?.data
+        const regId = Number(d?.id ?? d?.Id ?? 0) || 0
+        if (!res?.success || !d || regId <= 0) {
+          setSupplierRegisterModal({ open: true, name: trimmedSupplier })
+          return
+        }
+      } catch (err) {
+        if (err?.response?.status === 404) {
+          setSupplierRegisterModal({ open: true, name: trimmedSupplier })
+          return
+        }
+        toast.error('Could not verify supplier. Check your connection and try again.')
+        return
+      }
     }
 
     try {
@@ -1232,25 +1254,32 @@ const PurchasesPage = () => {
                     required
                     className="w-full px-3 py-2 border-2 border-lime-300 rounded text-sm"
                     value={formData.supplierName}
-                    onChange={(e) => setFormData({ ...formData, supplierName: e.target.value })}
-                    onBlur={() => setTimeout(() => setShowSupplierSuggestions(false), 150)}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, supplierName: e.target.value }))}
+                    onBlur={() => setTimeout(() => setShowSupplierSuggestions(false), 200)}
                     onFocus={() => supplierSuggestions.length > 0 && setShowSupplierSuggestions(true)}
                   />
                   {showSupplierSuggestions && supplierSuggestions.length > 0 && (
                     <div className="absolute z-20 mt-1 w-full bg-white border-2 border-lime-300 rounded shadow-lg max-h-48 overflow-y-auto">
-                      {supplierSuggestions.map((name, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          className="block w-full text-left px-3 py-2 hover:bg-lime-50 text-sm"
-                          onClick={() => {
-                            setFormData({ ...formData, supplierName: typeof name === 'string' ? name : (name?.name || name) })
-                            setShowSupplierSuggestions(false)
-                          }}
-                        >
-                          {typeof name === 'string' ? name : (name?.name || name)}
-                        </button>
-                      ))}
+                      {supplierSuggestions.map((name, i) => {
+                        const label = typeof name === 'string' ? name : (name?.name || String(name))
+                        const pickSupplier = (ev) => {
+                          ev.preventDefault()
+                          ev.stopPropagation()
+                          setFormData((prev) => ({ ...prev, supplierName: label }))
+                          setShowSupplierSuggestions(false)
+                        }
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            className="block w-full text-left px-3 py-2 hover:bg-lime-50 text-sm"
+                            onMouseDown={pickSupplier}
+                            onClick={pickSupplier}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -1918,6 +1947,42 @@ const PurchasesPage = () => {
           )}
         </div>
       </div>
+      <Modal
+        isOpen={supplierRegisterModal.open}
+        onClose={() => setSupplierRegisterModal({ open: false, name: '' })}
+        title="Create supplier first"
+        size="md"
+      >
+        <div className="space-y-4 text-sm text-primary-800">
+          <p>
+            <strong>{supplierRegisterModal.name || 'This supplier'}</strong> is not in your supplier directory yet.
+            Add the supplier first, then return here to record the purchase.
+          </p>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg border-2 border-primary-300 text-primary-800 font-medium hover:bg-primary-50 min-h-[44px]"
+              onClick={() => setSupplierRegisterModal({ open: false, name: '' })}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 min-h-[44px]"
+              onClick={() => {
+                const n = supplierRegisterModal.name || ''
+                setSupplierRegisterModal({ open: false, name: '' })
+                try {
+                  sessionStorage.setItem('hexabill.afterSupplierCreate', '/purchases')
+                } catch (_) { /* ignore */ }
+                navigate(`/suppliers?create=1&prefill=${encodeURIComponent(n)}`)
+              }}
+            >
+              Go to Add Supplier
+            </button>
+          </div>
+        </div>
+      </Modal>
       {/* Confirm Danger Modal */}
       <ConfirmDangerModal
         isOpen={dangerModal.isOpen}

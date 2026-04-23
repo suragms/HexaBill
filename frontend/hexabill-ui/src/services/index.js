@@ -1480,8 +1480,10 @@ export const suppliersAPI = {
     const response = await api.post('/suppliers', data)
     return response.data
   },
-  getSupplier: async (supplierName) => {
-    const response = await api.get(`/suppliers/by-name/${encodeURIComponent(supplierName)}`)
+  getSupplier: async (supplierName, options = {}) => {
+    const response = await api.get(`/suppliers/by-name/${encodeURIComponent(supplierName)}`, {
+      ...(options.bypassCache ? { _bypassCache: true } : {})
+    })
     return response.data
   },
   updateSupplier: async (supplierName, data) => {

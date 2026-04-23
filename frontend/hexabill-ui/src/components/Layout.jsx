@@ -40,6 +40,7 @@ import {
 import BottomNav from './BottomNav'
 import Logo from './Logo'
 import AlertNotifications from './AlertNotifications'
+import CloudHostingCostReminder from './CloudHostingCostReminder'
 import { SubscriptionGraceBanner } from './SubscriptionGraceBanner'
 import { connectionManager } from '../services/connectionManager'
 import { isAdminOrOwner, isOwner, isStaff } from '../utils/roles'  // CRITICAL: Multi-tenant role checking
@@ -399,6 +400,7 @@ const Layout = () => {
           </div>
         )}
         <SubscriptionGraceBanner />
+        <CloudHostingCostReminder />
         {/* Top Header Bar for Other Pages - Similar to Dashboard */}
         <div className={`hidden lg:block fixed right-0 h-16 bg-primary-900 text-white border-b border-primary-800 z-30 transition-all duration-300 ${isSidebarCollapsed ? 'left-20' : 'left-60'} ${userIsSystemAdmin && selectedTenantId ? 'top-10' : 'top-0'}`}>
           <div className="flex items-center justify-between px-4 py-3">
